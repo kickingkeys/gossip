@@ -1,0 +1,34 @@
+# Runtime data
+data/gossip.db
+data/gossip.db-shm
+data/gossip.db-wal
+data/dossiers/
+data/chat/
+data/group.md
+
+# Config secrets
+config/.env
+config/google_credentials.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (for Hermes submodule browser tools)
+node_modules/

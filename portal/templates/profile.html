@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ member.display_name if member else "Profile" }} - Gossip{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="card">
+    <h2>Oops</h2>
+    <p class="error">{{ error }}</p>
+</div>
+
+{% elif member %}
+
+<div class="card">
+    <h1>{{ member.display_name }}</h1>
+    <p class="subtitle">
+        {% if member.discord_username %}@{{ member.discord_username }} on Discord{% endif %}
+        {% if member.discord_username and member.telegram_username %} · {% endif %}
+        {% if member.telegram_username %}@{{ member.telegram_username }} on Telegram{% endif %}
+    </p>
+    {% if member.is_paused %}
+    <p class="badge badge-warning">Data collection paused</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Connected Sources</h2>
+
+    <div class="source-list">
+        <div class="source-row">
+            <span>Google Calendar / Gmail</span>
+            {% if google_connected %}
+            <span class="badge badge-ok">Connected</span>
+            <form action="/me/{{ member.portal_token }}/disconnect/google" method="post" class="inline">
+                <button type="submit" class="btn-small btn-danger">Disconnect</button>
+            </form>
+            {% else %}
+            <span class="badge badge-off">Not connected</span>
+            {% endif %}
+        </div>
+
+        <div class="source-row">
+            <span>Instagram</span>
+            {% if instagram_connected %}
+            <span class="badge badge-ok">Connected</span>
+            <form action="/me/{{ member.portal_token }}/disconnect/instagram" method="post" class="inline">
+                <button type="submit" class="btn-small btn-danger">Disconnect</button>
+            </form>
+            {% else %}
+            <span class="badge badge-off">Not connected</span>
+            {% endif %}
+        </div>
+
+        <div class="source-row">
+            <span>Twitter/X</span>
+            {% if twitter_connected %}
+            <span class="badge badge-ok">Connected</span>
+            <form action="/me/{{ member.portal_token }}/disconnect/twitter" method="post" class="inline">
+                <button type="submit" class="btn-small btn-danger">Disconnect</button>
+            </form>
+            {% else %}
+            <span class="badge badge-off">Not connected</span>
+            {% endif %}
+        </div>
+
+        <div class="source-row">
+            <span>Email forwarding</span>
+            <span class="badge badge-ok">Always on</span>
+            <span class="hint">Forward to {{ bot_email }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>What {{ bot_name }} knows about you</h2>
+
+    {% if dossier_entries %}
+    {% for entry in dossier_entries %}
+    <div class="dossier-entry">
+        <span>{{ entry.title }}</span>
+        <form action="/me/{{ member.portal_token }}/delete-entry/{{ entry.index }}" method="post" class="inline">
+            <button type="submit" class="btn-small btn-danger">Delete</button>
+        </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="desc">Nothing yet. Connect some sources or tell the bot something!</p>
+    {% endif %}
+
+    <details>
+        <summary>View raw dossier</summary>
+        <pre class="dossier-raw">{{ dossier }}</pre>
+    </details>
+</div>
+
+<div class="card">
+    <h2>Tell {{ bot_name }} something new</h2>
+
+    <form action="/me/{{ member.portal_token }}/input" method="post">
+        <textarea name="content" rows="3" placeholder="Drop a fact, vibe, or gossip request..."></textarea>
+        <button type="submit">Submit</button>
+    </form>
+
+    {% if manual_inputs %}
+    <h3>Pending tips</h3>
+    <ul>
+        {% for inp in manual_inputs %}
+        <li>{{ inp.content }} <span class="hint">({{ inp.created_at[:10] }})</span></li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+
+<div class="card center">
+    <form action="/me/{{ member.portal_token }}/pause" method="post" class="inline">
+        <button type="submit" class="btn btn-outline">
+            {% if member.is_paused %}Resume data collection{% else %}Pause all data{% endif %}
+        </button>
+    </form>
+
+    <form action="/me/{{ member.portal_token }}/delete-all" method="post" class="inline"
+          onsubmit="return confirm('This will permanently delete all your data. Are you sure?')">
+        <button type="submit" class="btn btn-danger">Delete all my data</button>
+    </form>
+</div>
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Join {{ bot_name }}{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="card">
+    <h2>Oops</h2>
+    <p class="error">{{ error }}</p>
+</div>
+
+{% elif group %}
+<div class="card">
+    <h1>{{ bot_name }}</h1>
+    <p class="subtitle">wants to get to know you</p>
+    <p class="desc">Join <strong>{{ group.name }}</strong> and let the bot learn what makes you gossip-worthy.</p>
+
+    <form action="/onboard" method="post">
+        <input type="hidden" name="invite_token" value="{{ invite_token }}">
+
+        <label for="display_name">What's your name?</label>
+        <input type="text" id="display_name" name="display_name" placeholder="Your name" required>
+
+        <label>Which platform are you on?</label>
+        <div class="radio-group">
+            <label class="radio"><input type="radio" name="platform" value="discord" checked> Discord</label>
+            <label class="radio"><input type="radio" name="platform" value="telegram"> Telegram</label>
+            <label class="radio"><input type="radio" name="platform" value="both"> Both</label>
+        </div>
+
+        <label for="username">Your username on that platform</label>
+        <input type="text" id="username" name="username" placeholder="e.g. kickingkeys">
+
+        <button type="submit">Continue</button>
+    </form>
+</div>
+{% endif %}
+
+{% endblock %}

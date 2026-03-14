@@ -1,0 +1,44 @@
+# Gossip Bot Configuration
+
+bot:
+  name: "gossipbot"
+  # Personality preset: messy_gossip_queen | chill_observer | chaotic_agent | custom
+  personality: "messy_gossip_queen"
+
+group:
+  name: "the group"
+
+gossip:
+  # Hours of chat inactivity before dropping gossip
+  inactivity_threshold_hours: 3
+  # How often to check for gossip opportunity (minutes)
+  check_interval_minutes: 30
+  # Quiet hours — no gossip drops during this window
+  quiet_hours_start: 23  # 11pm
+  quiet_hours_end: 9     # 9am
+  # Max gossip messages to keep in context (to avoid repetition)
+  history_context_limit: 20
+  # Max days of chat history to include in context
+  chat_history_days: 2
+  # Max characters per dossier in context
+  dossier_max_chars: 500
+
+data:
+  # All paths relative to project root
+  db_path: "data/gossip.db"
+  dossiers_dir: "data/dossiers"
+  chat_dir: "data/chat"
+  group_dynamics: "data/group.md"
+
+sources:
+  # Data source sync interval (minutes)
+  sync_interval_minutes: 30
+  # Enable/disable specific sources
+  calendar_enabled: true
+  gmail_enabled: false      # Phase 2
+  instagram_enabled: false   # Phase 2
+  twitter_enabled: false     # Phase 2
+
+portal:
+  host: "0.0.0.0"
+  port: 3000

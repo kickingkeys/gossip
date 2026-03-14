@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Connect Sources - {{ bot_name }}{% endblock %}
+{% block content %}
+
+<div class="card">
+    <h1>hey {{ member.display_name }}</h1>
+    <p class="subtitle">let's get {{ bot_name }} some intel</p>
+</div>
+
+<div class="card">
+    <h2>Share with {{ bot_name }}'s Google account</h2>
+    <p class="desc">These are like sharing with a friend — no app permissions needed.</p>
+
+    <div class="source-item">
+        <div class="source-header">
+            <span class="source-icon">📅</span>
+            <strong>Google Calendar</strong>
+        </div>
+        <details>
+            <summary>Show me how</summary>
+            <ol>
+                <li>Open Google Calendar on your phone or computer</li>
+                <li>Go to Settings → your calendar → "Share with specific people"</li>
+                <li>Add <code>{{ bot_email }}</code></li>
+                <li>Select "See all event details"</li>
+                <li>Save</li>
+            </ol>
+            <p>The bot can now see your calendar events, travel plans, and schedule.</p>
+        </details>
+    </div>
+
+    <div class="source-item">
+        <div class="source-header">
+            <span class="source-icon">📍</span>
+            <strong>Live Location</strong>
+        </div>
+        <details>
+            <summary>Show me how</summary>
+            <ol>
+                <li>Open Google Maps on your phone</li>
+                <li>Tap your profile picture → "Location sharing"</li>
+                <li>Tap "Share your real-time location"</li>
+                <li>Select "Until you turn it off"</li>
+                <li>Share with <code>{{ bot_email }}</code></li>
+            </ol>
+            <p>The bot will know your general location — great for travel gossip.</p>
+        </details>
+    </div>
+
+    <div class="source-item">
+        <div class="source-header">
+            <span class="source-icon">📧</span>
+            <strong>Forward Emails</strong>
+        </div>
+        <details>
+            <summary>Show me how</summary>
+            <p>Forward interesting or funny emails to <code>{{ bot_email }}</code>. The bot will use them as gossip fuel (without revealing it read your email).</p>
+        </details>
+    </div>
+</div>
+
+{% if google_oauth_enabled or instagram_enabled or twitter_enabled %}
+<div class="card">
+    <h2>Or connect directly</h2>
+    <p class="desc">OAuth gives the bot deeper access to your data.</p>
+
+    {% if google_oauth_enabled %}
+    <a href="/auth/google/connect/{{ member.portal_token }}" class="btn btn-outline">
+        Connect Google (Calendar + Gmail)
+    </a>
+    {% endif %}
+
+    {% if instagram_enabled %}
+    <a href="/auth/instagram/connect/{{ member.portal_token }}" class="btn btn-outline btn-disabled">
+        Connect Instagram (coming soon)
+    </a>
+    {% endif %}
+
+    {% if twitter_enabled %}
+    <a href="/auth/twitter/connect/{{ member.portal_token }}" class="btn btn-outline btn-disabled">
+        Connect Twitter/X (coming soon)
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Tell {{ bot_name }} something</h2>
+    <p class="desc">Drop facts, vibes, whatever. The bot uses this as gossip fuel.</p>
+
+    <form action="/me/{{ member.portal_token }}/input" method="post">
+        <textarea name="content" rows="3" placeholder='e.g. "I just got promoted" or "Roast Osman about his 3am crisis"'></textarea>
+        <button type="submit">Submit</button>
+    </form>
+
+    <p class="hint">Examples: "I'm interviewing at Google" · "I've been into bouldering" · "I'm dating someone new"</p>
+</div>
+
+<div class="card center">
+    <a href="/me/{{ member.portal_token }}" class="btn">Go to my profile</a>
+</div>
+
+{% endblock %}
