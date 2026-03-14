@@ -30,6 +30,18 @@ echo ""
 # Initialize database if needed
 python -c "from gossip.db import init_db; init_db()"
 
+# Install Hermes hooks (symlink from repo into ~/.hermes/hooks/)
+HERMES_HOOKS_DIR="${HOME}/.hermes/hooks"
+mkdir -p "$HERMES_HOOKS_DIR"
+if [ -d "$PROJECT_ROOT/hooks/gossip-logger" ] && [ ! -e "$HERMES_HOOKS_DIR/gossip-logger" ]; then
+    ln -s "$PROJECT_ROOT/hooks/gossip-logger" "$HERMES_HOOKS_DIR/gossip-logger"
+    echo "  Installed gossip-logger hook"
+fi
+
+# Initialize logging
+python -c "from gossip.logger import setup_logging; setup_logging()"
+mkdir -p "$PROJECT_ROOT/data/logs"
+
 # Start portal in background
 echo "  Starting onboarding portal on port ${PORTAL_PORT:-3000}..."
 python -m portal.app &

@@ -30,6 +30,14 @@ data:
   chat_dir: "data/chat"
   group_dynamics: "data/group.md"
 
+logging:
+  enabled: true
+  log_dir: "data/logs"
+  jsonl_enabled: true
+  markdown_enabled: true
+  db_enabled: true
+  level: "INFO"
+
 sources:
   # Data source sync interval (minutes)
   sync_interval_minutes: 30

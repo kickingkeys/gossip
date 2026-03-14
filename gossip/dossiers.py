@@ -40,13 +40,29 @@ def append_dossier_from_source(
     member_name: str, source: str, content: str, subject: str | None = None
 ) -> None:
     """Append a structured entry from a data source (calendar, email, social, manual)."""
+    from gossip.logger import log_event
+
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     lines = [f"## {source.title()} ({date})"]
     if subject:
         lines.append(f"**Subject:** {subject}")
     lines.append("")
+    truncated = len(content) > 500
     lines.append(content.strip()[:500])  # Cap at 500 chars
     append_dossier(member_name, "\n".join(lines))
+
+    log_event(
+        event_type="dossier_update",
+        event_subtype=source,
+        summary=f"Added {source} entry to {member_name}'s dossier",
+        payload={
+            "member_name": member_name,
+            "source": source,
+            "subject": subject,
+            "content_chars": len(content),
+            "truncated": truncated,
+        },
+    )
 
 
 def get_all_dossiers() -> str:
@@ -90,9 +106,24 @@ def delete_dossier_entry(member_name: str, entry_index: int) -> bool:
     start = section_starts[entry_index]
     end = section_starts[entry_index + 1] if entry_index + 1 < len(section_starts) else len(lines)
 
+    deleted_title = lines[start][3:].strip() if lines[start].startswith("## ") else "(unknown)"
+
     # Remove the section
     new_lines = lines[:start] + lines[end:]
     write_dossier(member_name, "\n".join(new_lines))
+
+    from gossip.logger import log_event
+    log_event(
+        event_type="dossier_update",
+        event_subtype="delete",
+        summary=f"Deleted entry '{deleted_title}' from {member_name}'s dossier",
+        payload={
+            "member_name": member_name,
+            "entry_index": entry_index,
+            "deleted_title": deleted_title,
+        },
+    )
+
     return True
 
 

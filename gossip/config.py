@@ -55,6 +55,16 @@ class SourcesConfig:
 
 
 @dataclass
+class LoggingConfig:
+    enabled: bool = True
+    log_dir: str = "data/logs"
+    jsonl_enabled: bool = True
+    markdown_enabled: bool = True
+    db_enabled: bool = True
+    level: str = "INFO"
+
+
+@dataclass
 class PortalConfig:
     host: str = "0.0.0.0"
     port: int = 3000
@@ -67,12 +77,17 @@ class Config:
     gossip: GossipConfig = field(default_factory=GossipConfig)
     data: DataConfig = field(default_factory=DataConfig)
     sources: SourcesConfig = field(default_factory=SourcesConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     portal: PortalConfig = field(default_factory=PortalConfig)
     project_root: Path = field(default_factory=_project_root)
 
     def resolve_path(self, relative: str) -> Path:
         """Resolve a relative path against the project root."""
         return self.project_root / relative
+
+    @property
+    def log_dir(self) -> Path:
+        return self.resolve_path(self.logging.log_dir)
 
     @property
     def db_path(self) -> Path:
@@ -131,6 +146,8 @@ def load_config(config_path: str | Path | None = None) -> Config:
         cfg.data = DataConfig(**{k: v for k, v in raw["data"].items() if k in DataConfig.__dataclass_fields__})
     if "sources" in raw:
         cfg.sources = SourcesConfig(**{k: v for k, v in raw["sources"].items() if k in SourcesConfig.__dataclass_fields__})
+    if "logging" in raw:
+        cfg.logging = LoggingConfig(**{k: v for k, v in raw["logging"].items() if k in LoggingConfig.__dataclass_fields__})
     if "portal" in raw:
         cfg.portal = PortalConfig(**{k: v for k, v in raw["portal"].items() if k in PortalConfig.__dataclass_fields__})
 

@@ -34,12 +34,20 @@ READ_SCHEMA = {
 
 def _handle_read(args, **kwargs):
     from gossip.dossiers import read_dossier
+    from gossip.logger import log_event
 
     name = args.get("member_name", "")
     if not name:
         return json.dumps({"error": "member_name is required"})
 
     content = read_dossier(name)
+
+    log_event(
+        event_type="dossier_read",
+        summary=f"Read dossier for {name}",
+        payload={"member_name": name, "char_count": len(content)},
+    )
+
     return json.dumps({"member_name": name, "dossier": content})
 
 
@@ -71,6 +79,7 @@ UPDATE_SCHEMA = {
 
 def _handle_update(args, **kwargs):
     from gossip.dossiers import append_dossier_from_source
+    from gossip.logger import log_event
 
     name = args.get("member_name", "")
     entry = args.get("entry", "")
@@ -80,6 +89,19 @@ def _handle_update(args, **kwargs):
         return json.dumps({"error": "member_name and entry are required"})
 
     append_dossier_from_source(name, source, entry)
+
+    log_event(
+        event_type="dossier_update",
+        event_subtype=source,
+        summary=f"Updated dossier for {name} from {source}",
+        payload={
+            "member_name": name,
+            "source": source,
+            "entry_preview": entry[:200],
+            "entry_chars": len(entry),
+        },
+    )
+
     return json.dumps({"success": True, "member_name": name, "source": source})
 
 

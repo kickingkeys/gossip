@@ -173,6 +173,8 @@ def get_manual_input_text(group_id: str | None = None) -> str:
 
 def build_gossip_context(group_id: str | None = None) -> str:
     """Assemble the full context window for gossip generation."""
+    from gossip.logger import log_event
+
     chat = get_recent_chat()
     dossiers = get_all_dossiers()
     dynamics = get_group_dynamics()
@@ -196,11 +198,29 @@ def build_gossip_context(group_id: str | None = None) -> str:
     if manual:
         parts.extend(["", "## Fresh Intel (from members directly)", manual])
 
-    return "\n\n".join(parts)
+    context = "\n\n".join(parts)
+
+    log_event(
+        event_type="context_build",
+        summary="Assembled gossip context",
+        payload={
+            "chat_chars": len(chat),
+            "dossiers_chars": len(dossiers),
+            "dynamics_chars": len(dynamics),
+            "history_chars": len(history),
+            "manual_chars": len(manual),
+            "total_chars": len(context),
+            "has_manual_input": bool(manual),
+        },
+    )
+
+    return context
 
 
 def append_chat_log(username: str, content: str, timestamp: datetime | None = None) -> None:
     """Append a message to the daily chat log."""
+    from gossip.logger import log_event
+
     cfg = get_config()
     chat_dir = cfg.chat_dir
     chat_dir.mkdir(parents=True, exist_ok=True)
@@ -215,3 +235,14 @@ def append_chat_log(username: str, content: str, timestamp: datetime | None = No
     line = f"[{time_str}] {username}: {content}\n"
     with open(file_path, "a", encoding="utf-8") as f:
         f.write(line)
+
+    log_event(
+        event_type="chat_message",
+        event_subtype="human",
+        summary=f"Chat from {username} ({len(content)} chars)",
+        payload={
+            "username": username,
+            "char_count": len(content),
+            "date": date_str,
+        },
+    )

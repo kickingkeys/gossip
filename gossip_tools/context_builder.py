@@ -31,8 +31,17 @@ SCHEMA = {
 
 def _handler(args, **kwargs):
     from gossip.engine import build_gossip_context
+    from gossip.logger import timed_event
 
-    context = build_gossip_context()
+    with timed_event("context_build", "Assembling gossip context") as ctx:
+        context = build_gossip_context()
+        # Capture context stats for analysis
+        sections = context.split("## ")
+        ctx["payload"] = {
+            "total_chars": len(context),
+            "section_count": len(sections) - 1,  # first split is before first ##
+        }
+
     return json.dumps({"context": context})
 
 

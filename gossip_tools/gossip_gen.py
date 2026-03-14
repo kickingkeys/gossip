@@ -61,11 +61,24 @@ def _handler(args, **kwargs):
     # Reset inactivity timer (the gossip itself counts as activity... from the bot)
     # We don't reset here — only human messages reset the timer
 
-    # Log the action
+    # Log the action (legacy)
     log_action(
         "gossip_drop",
         f"Dropped gossip: {gossip_text[:100]}",
         json.dumps({"gossip_id": gossip_id, "context": context_summary}),
+    )
+
+    # Log to events system
+    from gossip.logger import log_event
+    log_event(
+        event_type="gossip_drop",
+        summary=f"Dropped gossip (id={gossip_id})",
+        payload={
+            "gossip_id": gossip_id,
+            "gossip_text": gossip_text,
+            "context_summary": context_summary,
+            "char_count": len(gossip_text),
+        },
     )
 
     return json.dumps({

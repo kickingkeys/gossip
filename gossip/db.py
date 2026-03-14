@@ -107,6 +107,21 @@ CREATE TABLE IF NOT EXISTS action_log (
     details_json TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Events (comprehensive logging for analysis)
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    event_subtype TEXT,
+    summary TEXT NOT NULL,
+    payload_json TEXT,
+    duration_ms INTEGER,
+    session_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 """
 
 
@@ -404,3 +419,52 @@ def log_action(action_type: str, summary: str, details_json: str | None = None) 
             "INSERT INTO action_log (action_type, summary, details_json, created_at) VALUES (?, ?, ?, ?)",
             (action_type, summary, details_json, _now()),
         )
+
+
+# ── Events (comprehensive logging) ────────────────────────────────────
+
+
+def log_event(
+    event_type: str,
+    summary: str,
+    event_subtype: str | None = None,
+    payload_json: str | None = None,
+    duration_ms: int | None = None,
+    session_id: str | None = None,
+) -> int:
+    """Log an event to the events table. Returns the event ID."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """INSERT INTO events
+            (event_type, event_subtype, summary, payload_json, duration_ms, session_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (event_type, event_subtype, summary, payload_json, duration_ms, session_id, _now()),
+        )
+        return cursor.lastrowid
+
+
+def get_events(
+    event_type: str | None = None,
+    limit: int = 100,
+    since: str | None = None,
+) -> list[dict]:
+    """Query events, optionally filtered by type and/or time."""
+    with get_connection() as conn:
+        query = "SELECT * FROM events"
+        params: list[Any] = []
+        clauses: list[str] = []
+
+        if event_type:
+            clauses.append("event_type = ?")
+            params.append(event_type)
+        if since:
+            clauses.append("created_at >= ?")
+            params.append(since)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]

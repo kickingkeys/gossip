@@ -32,8 +32,25 @@ SCHEMA = {
 
 def _handler(args, **kwargs):
     from gossip.engine import should_gossip
+    from gossip.logger import log_event
 
     result = should_gossip()
+
+    subtype = "fire" if result["should_fire"] else "skip"
+    if result.get("is_quiet_hours"):
+        subtype = "quiet_hours"
+
+    log_event(
+        event_type="idle_check",
+        event_subtype=subtype,
+        summary=result["reason"],
+        payload={
+            "should_fire": result["should_fire"],
+            "hours_idle": result["hours_idle"],
+            "is_quiet_hours": result["is_quiet_hours"],
+        },
+    )
+
     return json.dumps(result)
 
 

@@ -74,6 +74,13 @@ def fetch_upcoming_events(
         return events
 
     except Exception as e:
+        from gossip.logger import log_event
+        log_event(
+            event_type="calendar_sync",
+            event_subtype="error",
+            summary=f"Calendar fetch failed: {e}",
+            payload={"calendar_id": calendar_id, "error": str(e)},
+        )
         return [{"error": str(e)}]
 
 
@@ -96,8 +103,16 @@ def fetch_shared_calendars() -> list[dict[str, str]]:
 
 def sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
     """Sync a member's calendar events into their dossier."""
+    from gossip.logger import log_event
+
     token_data = get_oauth_token(member_id, "google")
     if not token_data:
+        log_event(
+            event_type="calendar_sync",
+            event_subtype="skip",
+            summary=f"No Google OAuth token for {member_name}",
+            payload={"member_name": member_name, "member_id": member_id},
+        )
         return []
 
     from google.oauth2.credentials import Credentials
@@ -128,6 +143,27 @@ def sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
             append_dossier_from_source(
                 member_name, "calendar", summary, subject="Upcoming Events"
             )
+
+        log_event(
+            event_type="calendar_sync",
+            event_subtype="success",
+            summary=f"Synced {len(events)} events for {member_name}",
+            payload={
+                "member_name": member_name,
+                "events_found": len(events),
+                "events_added_to_dossier": min(len(events), 5),
+            },
+        )
+    elif events and "error" in events[0]:
+        log_event(
+            event_type="calendar_sync",
+            event_subtype="error",
+            summary=f"Calendar sync failed for {member_name}: {events[0]['error']}",
+            payload={
+                "member_name": member_name,
+                "error": events[0]["error"],
+            },
+        )
 
     return events
 

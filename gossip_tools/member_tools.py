@@ -29,6 +29,7 @@ LIST_SCHEMA = {
 
 def _handle_list(args, **kwargs):
     from gossip.db import get_default_group, get_members_by_group
+    from gossip.logger import log_event
 
     group = get_default_group()
     if not group:
@@ -43,6 +44,13 @@ def _handle_list(args, **kwargs):
             "telegram": m.get("telegram_username") or None,
             "paused": bool(m.get("is_paused")),
         })
+
+    log_event(
+        event_type="member_lookup",
+        event_subtype="list",
+        summary=f"Listed {len(result)} members in {group['name']}",
+        payload={"group": group["name"], "member_count": len(result)},
+    )
 
     return json.dumps({"group": group["name"], "members": result})
 
@@ -85,7 +93,22 @@ def _handle_get(args, **kwargs):
             break
 
     if not member:
+        from gossip.logger import log_event
+        log_event(
+            event_type="member_lookup",
+            event_subtype="get",
+            summary=f"Member '{name}' not found",
+            payload={"member_name": name, "found": False},
+        )
         return json.dumps({"error": f"member '{name}' not found"})
+
+    from gossip.logger import log_event
+    log_event(
+        event_type="member_lookup",
+        event_subtype="get",
+        summary=f"Looked up member {name}",
+        payload={"member_name": name, "found": True},
+    )
 
     dossier = read_dossier(member["display_name"])
     entries = list_dossier_entries(member["display_name"])
