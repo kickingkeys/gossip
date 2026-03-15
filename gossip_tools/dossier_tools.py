@@ -34,7 +34,7 @@ READ_SCHEMA = {
 
 def _handle_read(args, **kwargs):
     from gossip.dossiers import read_dossier
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
 
     name = args.get("member_name", "")
     if not name:
@@ -46,6 +46,7 @@ def _handle_read(args, **kwargs):
         event_type="dossier_read",
         summary=f"Read dossier for {name}",
         payload={"member_name": name, "char_count": len(content)},
+        session_id=get_current_session_id(),
     )
 
     return json.dumps({"member_name": name, "dossier": content})
@@ -79,7 +80,7 @@ UPDATE_SCHEMA = {
 
 def _handle_update(args, **kwargs):
     from gossip.dossiers import append_dossier_from_source
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
 
     name = args.get("member_name", "")
     entry = args.get("entry", "")
@@ -100,6 +101,7 @@ def _handle_update(args, **kwargs):
             "entry_preview": entry[:200],
             "entry_chars": len(entry),
         },
+        session_id=get_current_session_id(),
     )
 
     return json.dumps({"success": True, "member_name": name, "source": source})

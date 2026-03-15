@@ -2,4 +2,5 @@ name: gossip-logger
 description: Links Hermes session IDs to gossip events for cross-referencing LLM transcripts with gossip decisions.
 events:
   - agent:start
+  - agent:step
   - agent:end

@@ -58,8 +58,12 @@ def _handler(args, **kwargs):
         context_summary=context_summary,
     )
 
-    # Reset inactivity timer (the gossip itself counts as activity... from the bot)
-    # We don't reset here — only human messages reset the timer
+    # Mark all pending manual inputs for this group as used
+    from gossip.db import get_members_by_group, get_unused_manual_input, mark_manual_input_used
+    members = get_members_by_group(group["id"])
+    for member in members:
+        for inp in get_unused_manual_input(member["id"]):
+            mark_manual_input_used(inp["id"])
 
     # Log the action (legacy)
     log_action(
@@ -69,7 +73,7 @@ def _handler(args, **kwargs):
     )
 
     # Log to events system
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
     log_event(
         event_type="gossip_drop",
         summary=f"Dropped gossip (id={gossip_id})",
@@ -79,6 +83,7 @@ def _handler(args, **kwargs):
             "context_summary": context_summary,
             "char_count": len(gossip_text),
         },
+        session_id=get_current_session_id(),
     )
 
     return json.dumps({

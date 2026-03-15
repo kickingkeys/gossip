@@ -32,7 +32,7 @@ SCHEMA = {
 
 def _handler(args, **kwargs):
     from gossip.engine import should_gossip
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
 
     result = should_gossip()
 
@@ -49,6 +49,7 @@ def _handler(args, **kwargs):
             "hours_idle": result["hours_idle"],
             "is_quiet_hours": result["is_quiet_hours"],
         },
+        session_id=get_current_session_id(),
     )
 
     return json.dumps(result)

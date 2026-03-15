@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import math
+
 from gossip.config import get_config
 from gossip.db import (
     get_chat_activity,
     get_default_group,
     get_members_by_group,
+    get_members_with_location,
     get_recent_gossip,
     get_unused_manual_input,
 )
@@ -135,6 +138,68 @@ def update_group_dynamics(content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def compact_group_dynamics(content: str, max_chars: int = 2000) -> str:
+    """Compact group dynamics to stay under max_chars.
+
+    Keeps the last 5 entries per section, summarizes older ones into a
+    single line. Pure text manipulation — no LLM call needed.
+    """
+    if len(content) <= max_chars:
+        return content
+
+    import re
+
+    sections: dict[str, list[str]] = {}
+    section_names = []
+    current_section = None
+
+    for line in content.split("\n"):
+        header_match = re.match(r"^## (.+)$", line)
+        if header_match:
+            current_section = header_match.group(1).strip()
+            if current_section not in sections:
+                sections[current_section] = []
+                section_names.append(current_section)
+            continue
+        if current_section and line.strip():
+            sections[current_section].append(line)
+
+    # Keep last 5 entries per section, summarize rest
+    compacted_sections = {}
+    for name in section_names:
+        entries = sections.get(name, [])
+        if len(entries) > 5:
+            older_count = len(entries) - 5
+            compacted_sections[name] = [
+                f"- ({older_count} earlier entries merged)",
+            ] + entries[-5:]
+        else:
+            compacted_sections[name] = entries
+
+    # Rebuild
+    parts = []
+    for name in section_names:
+        parts.append(f"## {name}")
+        entries = compacted_sections.get(name, [])
+        if entries:
+            parts.extend(entries)
+        parts.append("")
+
+    result = "\n".join(parts)
+
+    # If still over limit, truncate each section more aggressively
+    if len(result) > max_chars:
+        parts = []
+        for name in section_names:
+            parts.append(f"## {name}")
+            entries = compacted_sections.get(name, [])
+            parts.extend(entries[-3:])
+            parts.append("")
+        result = "\n".join(parts)
+
+    return result
+
+
 def get_gossip_history_text(group_id: str | None = None) -> str:
     """Get recent gossip history as text for context."""
     cfg = get_config()
@@ -151,6 +216,45 @@ def get_gossip_history_text(group_id: str | None = None) -> str:
     lines = []
     for g in reversed(gossips):  # Chronological order
         lines.append(f"[{g['posted_at']}] {g['gossip_text']}")
+    return "\n".join(lines)
+
+
+def get_member_locations_text(group_id: str | None = None) -> str:
+    """Get member locations as text for context."""
+    if group_id is None:
+        group = get_default_group()
+        if not group:
+            return "(no location data)"
+        group_id = group["id"]
+
+    members = get_members_with_location(group_id)
+    if not members:
+        return "(no location data)"
+
+    lines = []
+    for m in members:
+        updated = m.get("location_updated_at", "unknown")
+        lines.append(f"- {m['display_name']}: {m.get('location_name', '?')} (as of {updated})")
+
+    # Add proximity summary
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        R = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            dist = _haversine_km(
+                members[i]["latitude"], members[i]["longitude"],
+                members[j]["latitude"], members[j]["longitude"],
+            )
+            if dist < 1:
+                lines.append(f"  * {members[i]['display_name']} and {members[j]['display_name']}: same area!")
+            elif dist < 5:
+                lines.append(f"  * {members[i]['display_name']} and {members[j]['display_name']}: nearby ({dist:.1f}km)")
+
     return "\n".join(lines)
 
 
@@ -173,13 +277,14 @@ def get_manual_input_text(group_id: str | None = None) -> str:
 
 def build_gossip_context(group_id: str | None = None) -> str:
     """Assemble the full context window for gossip generation."""
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
 
     chat = get_recent_chat()
     dossiers = get_all_dossiers()
     dynamics = get_group_dynamics()
     history = get_gossip_history_text(group_id)
     manual = get_manual_input_text(group_id)
+    locations = get_member_locations_text(group_id)
 
     parts = [
         "## Recent Chat",
@@ -187,6 +292,9 @@ def build_gossip_context(group_id: str | None = None) -> str:
         "",
         "## Member Dossiers",
         dossiers,
+        "",
+        "## Member Locations",
+        locations,
         "",
         "## Group Dynamics",
         dynamics,
@@ -209,9 +317,11 @@ def build_gossip_context(group_id: str | None = None) -> str:
             "dynamics_chars": len(dynamics),
             "history_chars": len(history),
             "manual_chars": len(manual),
+            "locations_chars": len(locations),
             "total_chars": len(context),
             "has_manual_input": bool(manual),
         },
+        session_id=get_current_session_id(),
     )
 
     return context
@@ -219,7 +329,7 @@ def build_gossip_context(group_id: str | None = None) -> str:
 
 def append_chat_log(username: str, content: str, timestamp: datetime | None = None) -> None:
     """Append a message to the daily chat log."""
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
 
     cfg = get_config()
     chat_dir = cfg.chat_dir
@@ -245,4 +355,5 @@ def append_chat_log(username: str, content: str, timestamp: datetime | None = No
             "char_count": len(content),
             "date": date_str,
         },
+        session_id=get_current_session_id(),
     )

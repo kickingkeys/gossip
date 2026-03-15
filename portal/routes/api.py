@@ -28,6 +28,10 @@ async def list_members():
                 "discord": m.get("discord_username"),
                 "telegram": m.get("telegram_username"),
                 "paused": bool(m.get("is_paused")),
+                "latitude": m.get("latitude"),
+                "longitude": m.get("longitude"),
+                "location_name": m.get("location_name"),
+                "location_updated_at": m.get("location_updated_at"),
             }
             for m in members
         ],

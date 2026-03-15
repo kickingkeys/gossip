@@ -1,0 +1,74 @@
+{
+  "jobs": [
+    {
+      "id": "gossip-idle-01",
+      "name": "Gossip Idle Check",
+      "prompt": "Run the gossip idle check flow. Call gossip_check_idle first. If should_fire is true, call gossip_build_context, then generate a gossip message based on the context and call gossip_generate to log it. If should_fire is false, do nothing.",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 30,
+        "display": "every 30m"
+      },
+      "schedule_display": "every 30m",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": true,
+      "created_at": "2026-03-15T00:00:00+00:00",
+      "next_run_at": null,
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "deliver": "discord:1482803423920521413",
+      "origin": null
+    },
+    {
+      "id": "calendar-sync-01",
+      "name": "Calendar Sync",
+      "prompt": "Sync Google Calendar events for all members who have connected their calendars. Update their dossiers with upcoming events.",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 60,
+        "display": "every 60m"
+      },
+      "schedule_display": "every 60m",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": false,
+      "created_at": "2026-03-15T00:00:00+00:00",
+      "next_run_at": null,
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "deliver": "local",
+      "origin": null
+    },
+    {
+      "id": "location-check-01",
+      "name": "Location Check",
+      "prompt": "Check where group members are by opening Google Maps location sharing in the browser. Use browser_navigate to go to https://www.google.com/maps. If you see a login prompt, sign in with the Google Maps credentials (email from GOOGLE_MAPS_EMAIL env). Then navigate to the location sharing view. Use browser_vision to see all shared locations - ask it to list each person's name, their current location/place name, and last update time. Then call gossip_update_locations with the extracted data. Finally, close the browser with browser_close.",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 30,
+        "display": "every 30m"
+      },
+      "schedule_display": "every 30m",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": false,
+      "created_at": "2026-03-15T00:00:00+00:00",
+      "next_run_at": null,
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "deliver": "local",
+      "origin": null
+    }
+  ],
+  "updated_at": "2026-03-15T00:00:00+00:00"
+}

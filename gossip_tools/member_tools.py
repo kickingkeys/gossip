@@ -29,7 +29,7 @@ LIST_SCHEMA = {
 
 def _handle_list(args, **kwargs):
     from gossip.db import get_default_group, get_members_by_group
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
 
     group = get_default_group()
     if not group:
@@ -50,6 +50,7 @@ def _handle_list(args, **kwargs):
         event_subtype="list",
         summary=f"Listed {len(result)} members in {group['name']}",
         payload={"group": group["name"], "member_count": len(result)},
+        session_id=get_current_session_id(),
     )
 
     return json.dumps({"group": group["name"], "members": result})
@@ -93,21 +94,23 @@ def _handle_get(args, **kwargs):
             break
 
     if not member:
-        from gossip.logger import log_event
+        from gossip.logger import log_event, get_current_session_id
         log_event(
             event_type="member_lookup",
             event_subtype="get",
             summary=f"Member '{name}' not found",
             payload={"member_name": name, "found": False},
+            session_id=get_current_session_id(),
         )
         return json.dumps({"error": f"member '{name}' not found"})
 
-    from gossip.logger import log_event
+    from gossip.logger import log_event, get_current_session_id
     log_event(
         event_type="member_lookup",
         event_subtype="get",
         summary=f"Looked up member {name}",
         payload={"member_name": name, "found": True},
+        session_id=get_current_session_id(),
     )
 
     dossier = read_dossier(member["display_name"])

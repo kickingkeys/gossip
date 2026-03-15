@@ -136,6 +136,7 @@ def init_db() -> None:
     """Create all tables if they don't exist."""
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+    _migrate_location_columns()
 
 
 @contextmanager
@@ -276,6 +277,51 @@ def update_member(member_id: str, **fields) -> None:
 def delete_member(member_id: str) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM members WHERE id = ?", (member_id,))
+
+
+# ── Location ───────────────────────────────────────────────────────────
+
+
+def _migrate_location_columns() -> None:
+    """Add location columns to members table if they don't exist."""
+    columns = [
+        ("latitude", "REAL"),
+        ("longitude", "REAL"),
+        ("location_name", "TEXT"),
+        ("location_updated_at", "TEXT"),
+    ]
+    with get_connection() as conn:
+        for col_name, col_type in columns:
+            try:
+                conn.execute(f"ALTER TABLE members ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+
+def update_member_location(
+    member_id: str, lat: float, lng: float, location_name: str
+) -> None:
+    """Update a member's location."""
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE members
+            SET latitude = ?, longitude = ?, location_name = ?,
+                location_updated_at = ?, updated_at = ?
+            WHERE id = ?""",
+            (lat, lng, location_name, _now(), _now(), member_id),
+        )
+
+
+def get_members_with_location(group_id: str) -> list[dict]:
+    """Return members that have location data."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM members
+            WHERE group_id = ? AND latitude IS NOT NULL
+            ORDER BY display_name""",
+            (group_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── OAuth Tokens ────────────────────────────────────────────────────────
@@ -467,4 +513,14 @@ def get_events(
         params.append(limit)
 
         rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_events_by_session(session_id: str) -> list[dict]:
+    """Get all events for a given session, ordered chronologically."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE session_id = ? ORDER BY created_at ASC",
+            (session_id,),
+        ).fetchall()
         return [dict(r) for r in rows]
