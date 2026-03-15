@@ -30,8 +30,8 @@ echo ""
 # Initialize database if needed
 python -c "from gossip.db import init_db; init_db()"
 
-# Install Hermes hooks (symlink from repo into ~/.hermes/hooks/)
-HERMES_HOOKS_DIR="${HOME}/.hermes/hooks"
+# Install Hermes hooks (symlink from repo into $HERMES_HOME/hooks/)
+HERMES_HOOKS_DIR="$HERMES_HOME/hooks"
 mkdir -p "$HERMES_HOOKS_DIR"
 if [ -d "$PROJECT_ROOT/hooks/gossip-logger" ] && [ ! -e "$HERMES_HOOKS_DIR/gossip-logger" ]; then
     ln -s "$PROJECT_ROOT/hooks/gossip-logger" "$HERMES_HOOKS_DIR/gossip-logger"

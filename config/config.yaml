@@ -1,13 +1,14 @@
-model: "anthropic/claude-sonnet-4-20250514"
+DISCORD_HOME_CHANNEL: '1482803423920521413'
 agent:
   max_turns: 10
   reasoning_effort: medium
-session_reset:
-  mode: idle
-  idle_minutes: 1440
 discord:
-  require_mention: false
-  free_response_channels: "1482803423920521413"
   auto_thread: false
+  free_response_channels: '1482803423920521413'
+  require_mention: false
 memory:
   memory_enabled: true
+model: anthropic/claude-sonnet-4-20250514
+session_reset:
+  idle_minutes: 1440
+  mode: idle
