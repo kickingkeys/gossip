@@ -28,6 +28,7 @@ create_custom_toolset(
         "gossip_member_locations",
         "gossip_update_dynamics",
         "gossip_read_dynamics",
+        "send_message",
     ],
 )
 

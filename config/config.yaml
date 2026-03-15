@@ -9,6 +9,15 @@ discord:
 memory:
   memory_enabled: true
 model: anthropic/claude-sonnet-4-20250514
+platform_toolsets:
+  discord:
+    - gossip
+    - memory
+    - skills
+    - search
+    - image_gen
+    - clarify
+    - cronjob
 session_reset:
   idle_minutes: 1440
   mode: idle
