@@ -21,7 +21,7 @@ from gossip.dossiers import (
     read_dossier,
     write_dossier,
 )
-from portal.app import get_templates
+from portal.deps import get_templates
 
 router = APIRouter()
 

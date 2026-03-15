@@ -7,10 +7,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from gossip.config import load_config
 from gossip.db import init_db
+from portal.deps import get_templates  # noqa: F401 — re-exported for backward compat
 from portal.routes import invite, onboard, profile, api, oauth_google, map_view
 
 _portal_dir = Path(__file__).parent
@@ -27,9 +27,8 @@ async def root():
     }
 
 
-# Mount static files and templates
+# Mount static files
 app.mount("/static", StaticFiles(directory=_portal_dir / "static"), name="static")
-templates = Jinja2Templates(directory=_portal_dir / "templates")
 
 # Include route modules
 app.include_router(invite.router)
@@ -44,10 +43,6 @@ app.include_router(map_view.router)
 async def startup():
     load_config()
     init_db()
-
-
-def get_templates() -> Jinja2Templates:
-    return templates
 
 
 def run():

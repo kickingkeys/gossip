@@ -4,7 +4,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from gossip.db import get_group_by_invite
-from portal.app import get_templates
 
 router = APIRouter()
 
@@ -15,6 +14,7 @@ async def map_page(request: Request, invite_token: str):
     if not group:
         return HTMLResponse("<h1>Group not found</h1>", status_code=404)
 
+    from portal.deps import get_templates
     templates = get_templates()
     return templates.TemplateResponse("map.html", {
         "request": request,

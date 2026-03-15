@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 
 from gossip.config import get_config
 from gossip.db import get_group_by_invite
-from portal.app import get_templates
+from portal.deps import get_templates
 
 router = APIRouter()
 

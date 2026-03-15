@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from gossip.config import get_config
 from gossip.db import create_member, get_group_by_invite, get_member_by_portal_token
-from portal.app import get_templates
+from portal.deps import get_templates
 
 router = APIRouter()
 
