@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gossip Bot — Launch Script
-# Starts the Hermes gateway (bot) and the onboarding portal
+# Starts the Hermes gateway (bot), onboarding portal, and ngrok tunnel
 
 set -e
 
@@ -23,6 +23,9 @@ fi
 export HERMES_HOME="$PROJECT_ROOT/config"
 export PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/vendor/hermes-agent:$PYTHONPATH"
 
+NGROK_DOMAIN="superocular-floria-unriotously.ngrok-free.dev"
+PORT="${PORTAL_PORT:-3000}"
+
 echo ""
 echo "  Starting Gossip Bot..."
 echo ""
@@ -43,9 +46,20 @@ python -c "from gossip.logger import setup_logging; setup_logging()"
 mkdir -p "$PROJECT_ROOT/data/logs"
 
 # Start portal in background
-echo "  Starting onboarding portal on port ${PORTAL_PORT:-3000}..."
+echo "  Starting onboarding portal on port $PORT..."
 python -m portal.app &
 PORTAL_PID=$!
+
+# Start ngrok tunnel in background
+NGROK_PID=""
+if command -v ngrok &>/dev/null; then
+    echo "  Starting ngrok tunnel..."
+    ngrok http --url="$NGROK_DOMAIN" "$PORT" --log=stdout --log-level=warn &>/dev/null &
+    NGROK_PID=$!
+    echo "  ngrok PID: $NGROK_PID"
+else
+    echo "  ngrok not installed — skipping tunnel (local access only)"
+fi
 
 # Start Hermes gateway
 echo "  Starting Hermes gateway..."
@@ -72,12 +86,28 @@ echo "  Portal PID: $PORTAL_PID"
 echo "  Hermes PID: $HERMES_PID"
 echo ""
 echo "  Gossip bot is running!"
-echo "  Portal: http://localhost:${PORTAL_PORT:-3000}"
+echo "  Local:  http://localhost:$PORT"
+echo "  Public: https://$NGROK_DOMAIN"
+echo ""
+echo "  Onboarding: https://$NGROK_DOMAIN/join/$(python -c "
+import sys; sys.path.insert(0, '$PROJECT_ROOT')
+from gossip.config import load_config; load_config()
+from gossip.db import get_default_group
+g = get_default_group()
+print(g['invite_token'] if g else 'NO_GROUP')
+")"
+echo "  Map:         https://$NGROK_DOMAIN/map/$(python -c "
+import sys; sys.path.insert(0, '$PROJECT_ROOT')
+from gossip.config import load_config; load_config()
+from gossip.db import get_default_group
+g = get_default_group()
+print(g['invite_token'] if g else 'NO_GROUP')
+")"
 echo ""
 echo "  Press Ctrl+C to stop"
 
-# Trap Ctrl+C to kill both processes
-trap "kill $PORTAL_PID $HERMES_PID 2>/dev/null; echo '  Stopped.'; exit 0" INT TERM
+# Trap Ctrl+C to kill all processes
+trap "kill $PORTAL_PID $HERMES_PID $NGROK_PID 2>/dev/null; echo '  Stopped.'; exit 0" INT TERM
 
 # Wait for either process to exit
 wait
