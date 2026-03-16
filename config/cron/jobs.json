@@ -24,9 +24,9 @@
       "origin": null
     },
     {
-      "id": "calendar-sync-01",
-      "name": "Calendar Sync",
-      "prompt": "Sync Google Calendar events for all members who have connected their calendars. Update their dossiers with upcoming events.",
+      "id": "source-sync-01",
+      "name": "Calendar + Email Sync",
+      "prompt": "Call gossip_sync_sources to sync calendar events and emails for all members who have connected their Google accounts.",
       "schedule": {
         "kind": "interval",
         "minutes": 60,
@@ -37,7 +37,7 @@
         "times": null,
         "completed": 0
       },
-      "enabled": false,
+      "enabled": true,
       "created_at": "2026-03-15T00:00:00+00:00",
       "next_run_at": null,
       "last_run_at": null,

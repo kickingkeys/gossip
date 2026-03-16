@@ -24,6 +24,8 @@ Keep the group chat alive by dropping contextual, personalized gossip based on w
 - `gossip_member_locations` — Get all member locations with pairwise distances
 - `gossip_update_dynamics` — Add observations about relationships, patterns, jokes
 - `gossip_read_dynamics` — Read current group dynamics summary
+- `gossip_generate_image` — Generate an image from a text prompt (Gemini)
+- `gossip_sync_sources` — Sync calendar + email for all OAuth-connected members
 
 ## When Generating Gossip (Cron)
 1. Call `gossip_check_idle` first. If `should_fire` is false, stop.
