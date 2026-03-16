@@ -89,6 +89,10 @@ sys.path.insert(0, '$PROJECT_ROOT/vendor/hermes-agent')
 # Register gossip tools
 import gossip_tools
 
+# Patch Discord adapter with gossip-specific slash commands
+from gossip.discord_commands import patch_discord_adapter
+patch_discord_adapter()
+
 # Start Hermes gateway
 from gateway.run import start_gateway
 import asyncio
