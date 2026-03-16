@@ -317,16 +317,17 @@ def register_gossip_commands(adapter) -> None:
 
 
 def _get_public_url() -> str:
-    """Get the public portal URL, re-reading .env if needed."""
-    url = os.getenv("PORTAL_PUBLIC_URL", "").rstrip("/")
-    if not url:
-        try:
-            from dotenv import dotenv_values
-            env = dotenv_values(_project_root / "config" / ".env")
-            url = env.get("PORTAL_PUBLIC_URL", "").rstrip("/")
-        except Exception:
-            pass
-    return url or "http://localhost:3000"
+    """Get the public portal URL, always re-reading .env since tunnel URL
+    is written after processes start."""
+    try:
+        from dotenv import dotenv_values
+        env = dotenv_values(_project_root / "config" / ".env")
+        url = env.get("PORTAL_PUBLIC_URL", "").rstrip("/")
+        if url:
+            return url
+    except Exception:
+        pass
+    return os.getenv("PORTAL_PUBLIC_URL", "http://localhost:3000").rstrip("/")
 
 
 def _build_event(adapter, interaction, text):

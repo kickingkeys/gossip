@@ -15,19 +15,21 @@ SCOPES = [
 
 
 def _get_redirect_uri(request: Request) -> str:
-    """Build the OAuth redirect URI, preferring the public tunnel URL."""
-    # Check env var first, then re-read .env file in case tunnel started after portal
-    public_url = os.getenv("PORTAL_PUBLIC_URL", "").rstrip("/")
-    if not public_url:
-        try:
-            from dotenv import dotenv_values
-            from gossip.config import _project_root
-            env = dotenv_values(_project_root() / "config" / ".env")
-            public_url = env.get("PORTAL_PUBLIC_URL", "").rstrip("/")
-        except Exception:
-            pass
-    if public_url:
-        return f"{public_url}/auth/google/callback"
+    """Build the OAuth redirect URI, always re-reading .env for the tunnel URL.
+
+    The tunnel URL changes on every restart and is written to .env AFTER
+    the portal process starts, so we must read the file directly rather
+    than trusting the process environment.
+    """
+    try:
+        from dotenv import dotenv_values
+        from gossip.config import _project_root
+        env = dotenv_values(_project_root() / "config" / ".env")
+        public_url = env.get("PORTAL_PUBLIC_URL", "").rstrip("/")
+        if public_url:
+            return f"{public_url}/auth/google/callback"
+    except Exception:
+        pass
     return str(request.url_for("google_callback"))
 
 
