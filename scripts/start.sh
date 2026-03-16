@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gossip Bot — Launch Script
-# Starts the Hermes gateway (bot), onboarding portal, and ngrok tunnel
+# Starts the Hermes gateway (bot), onboarding portal, and public tunnel
 
 set -e
 
@@ -23,7 +23,6 @@ fi
 export HERMES_HOME="$PROJECT_ROOT/config"
 export PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/vendor/hermes-agent:$PYTHONPATH"
 
-NGROK_DOMAIN="superocular-floria-unriotously.ngrok-free.dev"
 PORT="${PORTAL_PORT:-3000}"
 
 echo ""
@@ -49,16 +48,31 @@ mkdir -p "$PROJECT_ROOT/data/logs"
 echo "  Starting onboarding portal on port $PORT..."
 python -m portal.app &
 PORTAL_PID=$!
+sleep 2
 
-# Start ngrok tunnel in background
-NGROK_PID=""
-if command -v ngrok &>/dev/null; then
-    echo "  Starting ngrok tunnel..."
-    ngrok http --url="$NGROK_DOMAIN" "$PORT" --log=stdout --log-level=warn &>/dev/null &
-    NGROK_PID=$!
-    echo "  ngrok PID: $NGROK_PID"
+# Start public tunnel
+TUNNEL_PID=""
+PUBLIC_URL=""
+
+if command -v cloudflared &>/dev/null; then
+    echo "  Starting Cloudflare tunnel..."
+    cloudflared tunnel --url "http://localhost:$PORT" 2>/tmp/cloudflared.log &
+    TUNNEL_PID=$!
+
+    # Wait for the URL to appear in logs (up to 15 seconds)
+    for i in $(seq 1 15); do
+        PUBLIC_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log 2>/dev/null | head -1)
+        if [ -n "$PUBLIC_URL" ]; then break; fi
+        sleep 1
+    done
+
+    if [ -z "$PUBLIC_URL" ]; then
+        echo "  Warning: Cloudflare tunnel started but URL not detected yet"
+        echo "  Check /tmp/cloudflared.log for the URL"
+    fi
 else
-    echo "  ngrok not installed — skipping tunnel (local access only)"
+    echo "  No tunnel available (install cloudflared: brew install cloudflared)"
+    echo "  Portal accessible locally only: http://localhost:$PORT"
 fi
 
 # Start Hermes gateway
@@ -82,32 +96,33 @@ asyncio.run(start_gateway())
 " &
 HERMES_PID=$!
 
+# Get invite token
+INVITE_TOKEN=$(python -c "
+import sys; sys.path.insert(0, '$PROJECT_ROOT')
+from gossip.config import load_config; load_config()
+from gossip.db import get_default_group
+g = get_default_group()
+print(g['invite_token'] if g else 'NO_GROUP')
+")
+
 echo "  Portal PID: $PORTAL_PID"
 echo "  Hermes PID: $HERMES_PID"
+if [ -n "$TUNNEL_PID" ]; then echo "  Tunnel PID: $TUNNEL_PID"; fi
 echo ""
 echo "  Gossip bot is running!"
-echo "  Local:  http://localhost:$PORT"
-echo "  Public: https://$NGROK_DOMAIN"
-echo ""
-echo "  Onboarding: https://$NGROK_DOMAIN/join/$(python -c "
-import sys; sys.path.insert(0, '$PROJECT_ROOT')
-from gossip.config import load_config; load_config()
-from gossip.db import get_default_group
-g = get_default_group()
-print(g['invite_token'] if g else 'NO_GROUP')
-")"
-echo "  Map:         https://$NGROK_DOMAIN/map/$(python -c "
-import sys; sys.path.insert(0, '$PROJECT_ROOT')
-from gossip.config import load_config; load_config()
-from gossip.db import get_default_group
-g = get_default_group()
-print(g['invite_token'] if g else 'NO_GROUP')
-")"
+echo "  Local: http://localhost:$PORT"
+if [ -n "$PUBLIC_URL" ]; then
+    echo ""
+    echo "  Public URL: $PUBLIC_URL"
+    echo ""
+    echo "  Onboarding: $PUBLIC_URL/join/$INVITE_TOKEN"
+    echo "  Map:         $PUBLIC_URL/map/$INVITE_TOKEN"
+fi
 echo ""
 echo "  Press Ctrl+C to stop"
 
 # Trap Ctrl+C to kill all processes
-trap "kill $PORTAL_PID $HERMES_PID $NGROK_PID 2>/dev/null; echo '  Stopped.'; exit 0" INT TERM
+trap "kill $PORTAL_PID $HERMES_PID $TUNNEL_PID 2>/dev/null; echo '  Stopped.'; exit 0" INT TERM
 
 # Wait for either process to exit
 wait
