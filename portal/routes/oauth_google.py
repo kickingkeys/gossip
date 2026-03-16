@@ -56,7 +56,13 @@ def _get_flow(redirect_uri: str):
     if os.getenv("GOOGLE_GMAIL_ENABLED", "").lower() in ("true", "1", "yes"):
         scopes.append("https://www.googleapis.com/auth/gmail.readonly")
 
-    return Flow.from_client_config(client_config, scopes=scopes, redirect_uri=redirect_uri)
+    f = Flow.from_client_config(client_config, scopes=scopes, redirect_uri=redirect_uri)
+    # Disable PKCE — we're a confidential client (have client_secret).
+    # PKCE generates a code_verifier during authorization that must be present
+    # during token exchange, but our callback creates a new Flow object so the
+    # verifier is lost. Confidential clients don't need PKCE.
+    f.oauth2session._pkce = None
+    return f
 
 
 @router.get("/connect/{portal_token}")
@@ -96,7 +102,13 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
     if not flow:
         return RedirectResponse(url=f"/me/{portal_token}?error=google_not_configured", status_code=303)
 
-    flow.fetch_token(code=code)
+    try:
+        flow.fetch_token(code=code)
+    except Exception as e:
+        print(f"[OAuth] fetch_token FAILED: {e}", flush=True)
+        print(f"[OAuth] redirect_uri used: {redirect_uri}", flush=True)
+        return RedirectResponse(url=f"/me/{portal_token}?error=token_exchange_failed", status_code=303)
+
     credentials = flow.credentials
 
     # Store tokens
