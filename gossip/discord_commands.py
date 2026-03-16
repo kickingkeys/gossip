@@ -389,7 +389,52 @@ def _save_member_image(name: str, source_path: str, prompt: str) -> None:
 
 
 def patch_discord_adapter():
-    """Monkey-patch the DiscordAdapter to use gossip commands instead of Hermes defaults."""
+    """Monkey-patch the DiscordAdapter to use gossip commands and silent lurk mode."""
     from gateway.platforms.discord import DiscordAdapter
+    import discord as _discord
 
+    # Replace slash commands
     DiscordAdapter._register_slash_commands = lambda self: register_gossip_commands(self)
+
+    # Patch message handling: silently log non-mention messages without running the LLM.
+    # This makes Donny lurk and only respond when @mentioned, while still
+    # capturing all chat for gossip context.
+    _original_handle_message = DiscordAdapter._handle_message
+
+    async def _gossip_handle_message(self, message):
+        """Only process @mentions through the LLM. Log everything else silently."""
+        # Always capture the message for chat history + idle timer
+        try:
+            platform = "discord"
+            user_id = str(message.author.id)
+            content = message.content or ""
+
+            from gossip.identity import resolve_member
+            from gossip.engine import append_chat_log
+            from gossip.db import update_chat_activity, get_default_group
+
+            member = resolve_member(platform=platform, user_id=user_id)
+            username = member["display_name"] if member else message.author.display_name
+
+            append_chat_log(username=username, content=content)
+
+            group = get_default_group()
+            if group:
+                update_chat_activity(
+                    group_id=group["id"],
+                    platform=platform,
+                    channel_id=str(message.channel.id),
+                    author=username,
+                )
+        except Exception as e:
+            print(f"[gossip] Chat capture error: {e}", flush=True)
+
+        # Only run the LLM if the bot is @mentioned or it's a DM
+        is_mentioned = self._client.user in message.mentions if self._client.user else False
+        is_dm = isinstance(message.channel, _discord.DMChannel)
+
+        if is_mentioned or is_dm:
+            await _original_handle_message(self, message)
+        # else: silently drop — message is already logged
+
+    DiscordAdapter._handle_message = _gossip_handle_message

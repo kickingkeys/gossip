@@ -55,7 +55,7 @@ async def get_member(portal_token: str):
 
 
 @router.post("/member/{portal_token}/input")
-async def submit_input(portal_token: str, content: str = Body(..., embed=True)):
+async def submit_input(portal_token: str, content: str = Body("", embed=True)):
     member = get_member_by_portal_token(portal_token)
     if not member:
         return {"error": "not found"}
