@@ -11,8 +11,24 @@ router = APIRouter()
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
-    # gmail.readonly is restricted — add only if configured
 ]
+
+
+def _get_redirect_uri(request: Request) -> str:
+    """Build the OAuth redirect URI, preferring the public tunnel URL."""
+    # Check env var first, then re-read .env file in case tunnel started after portal
+    public_url = os.getenv("PORTAL_PUBLIC_URL", "").rstrip("/")
+    if not public_url:
+        try:
+            from dotenv import dotenv_values
+            from gossip.config import _project_root
+            env = dotenv_values(_project_root() / "config" / ".env")
+            public_url = env.get("PORTAL_PUBLIC_URL", "").rstrip("/")
+        except Exception:
+            pass
+    if public_url:
+        return f"{public_url}/auth/google/callback"
+    return str(request.url_for("google_callback"))
 
 
 def _get_flow(redirect_uri: str):
@@ -47,7 +63,7 @@ async def start_google_oauth(request: Request, portal_token: str):
     if not member:
         return RedirectResponse(url="/", status_code=303)
 
-    redirect_uri = str(request.url_for("google_callback"))
+    redirect_uri = _get_redirect_uri(request)
     flow = _get_flow(redirect_uri)
     if not flow:
         return RedirectResponse(url=f"/me/{portal_token}?error=google_not_configured", status_code=303)
@@ -73,7 +89,7 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
     if not member:
         return RedirectResponse(url="/", status_code=303)
 
-    redirect_uri = str(request.url_for("google_callback"))
+    redirect_uri = _get_redirect_uri(request)
     flow = _get_flow(redirect_uri)
     if not flow:
         return RedirectResponse(url=f"/me/{portal_token}?error=google_not_configured", status_code=303)
