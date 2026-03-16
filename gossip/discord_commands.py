@@ -59,9 +59,7 @@ def register_gossip_commands(adapter) -> None:
             token = group["invite_token"]
 
             # Use tunnel URL if available, fallback to localhost
-            base_url = os.getenv("PORTAL_PUBLIC_URL", "").rstrip("/")
-            if not base_url:
-                base_url = "http://localhost:3000"
+            base_url = _get_public_url()
 
             msg = (
                 f"**Join the gossip group:**\n"
@@ -316,6 +314,19 @@ def register_gossip_commands(adapter) -> None:
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
+
+
+def _get_public_url() -> str:
+    """Get the public portal URL, re-reading .env if needed."""
+    url = os.getenv("PORTAL_PUBLIC_URL", "").rstrip("/")
+    if not url:
+        try:
+            from dotenv import dotenv_values
+            env = dotenv_values(_project_root / "config" / ".env")
+            url = env.get("PORTAL_PUBLIC_URL", "").rstrip("/")
+        except Exception:
+            pass
+    return url or "http://localhost:3000"
 
 
 def _build_event(adapter, interaction, text):
