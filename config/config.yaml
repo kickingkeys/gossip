@@ -15,7 +15,6 @@ platform_toolsets:
     - memory
     - skills
     - search
-    - image_gen
     - clarify
     - cronjob
 session_reset:

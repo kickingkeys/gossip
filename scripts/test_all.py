@@ -103,7 +103,7 @@ def _():
         "gossip_list_members", "gossip_get_member",
         "gossip_update_locations", "gossip_member_locations",
         "gossip_update_dynamics", "gossip_read_dynamics",
-        "send_message",
+        "gossip_generate_image", "send_message",
     }
     actual = set(info["tools"])
     assert actual == expected, f"Tool mismatch: {actual.symmetric_difference(expected)}"

@@ -28,6 +28,7 @@ create_custom_toolset(
         "gossip_member_locations",
         "gossip_update_dynamics",
         "gossip_read_dynamics",
+        "gossip_generate_image",
         "send_message",
     ],
 )
@@ -39,3 +40,4 @@ from gossip_tools import dossier_tools  # noqa: F401, E402
 from gossip_tools import member_tools  # noqa: F401, E402
 from gossip_tools import location_tools  # noqa: F401, E402
 from gossip_tools import dynamics_tools  # noqa: F401, E402
+from gossip_tools import image_tools  # noqa: F401, E402
