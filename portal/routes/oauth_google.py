@@ -61,7 +61,8 @@ def _get_flow(redirect_uri: str):
     # PKCE generates a code_verifier during authorization that must be present
     # during token exchange, but our callback creates a new Flow object so the
     # verifier is lost. Confidential clients don't need PKCE.
-    f.oauth2session._pkce = None
+    f.autogenerate_code_verifier = False
+    f.code_verifier = None
     return f
 
 
