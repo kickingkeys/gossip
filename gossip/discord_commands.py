@@ -218,6 +218,82 @@ def register_gossip_commands(adapter) -> None:
         except Exception as e:
             await interaction.followup.send(f"Error: {e}"[:200], ephemeral=True)
 
+    # ── /help ────────────────────────────────────────────────────────────
+
+    @tree.command(name="help", description="Show what Donny can do")
+    async def slash_help(interaction: discord.Interaction):
+        msg = (
+            "**Donny — your group's gossip bot**\n\n"
+            "**Chat Commands**\n"
+            "`/tea [topic]` — ask Donny to spill gossip (optionally about someone)\n"
+            "`/whois [name]` — what does Donny know about someone?\n"
+            "`/tip [intel]` — drop gossip intel privately for Donny to use\n\n"
+            "**Images**\n"
+            "`/imagine [prompt]` — generate an AI image\n"
+            "`/imagine [prompt] about:[name]` — generate using someone's context\n"
+            "`/savepic [name] [photo]` — save a photo of someone for Donny\n\n"
+            "**Account**\n"
+            "`/onboard` — get the link to join the group\n"
+            "`/status` — see what Donny knows about you + connected sources\n\n"
+            "**Admin**\n"
+            "`/reset` — fresh conversation\n"
+            "`/stop` — stop Donny mid-response\n"
+            "`/sethome` — set this channel for gossip drops\n\n"
+            "You can also just `@Donny` in chat to talk directly."
+        )
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    # ── /status ─────────────────────────────────────────────────────────
+
+    @tree.command(name="status", description="See what Donny knows about you")
+    async def slash_status(interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            from gossip.db import get_default_group, get_oauth_token, get_unused_manual_input
+            from gossip.dossiers import read_dossier, list_dossier_entries
+            from gossip.config import load_config
+            load_config()
+
+            member = _find_member(interaction.user)
+            if not member:
+                await interaction.followup.send(
+                    "You haven't onboarded yet! Use `/onboard` to get the invite link.",
+                    ephemeral=True,
+                )
+                return
+
+            name = member["display_name"]
+
+            # Check connected sources
+            google = get_oauth_token(member["id"], "google")
+            entries = list_dossier_entries(name)
+            tips = get_unused_manual_input(member["id"])
+            photos = _get_member_images(name)
+
+            # Location
+            has_location = member.get("latitude") is not None
+            loc_text = f"{member.get('location_name', '?')}" if has_location else "not shared"
+
+            lines = [
+                f"**{name}** (@{member.get('discord_username', '?')})\n",
+                "**Connected Sources**",
+                f"  Google (Calendar + Email): {'connected' if google else 'not connected'}",
+                f"  Live Location: {loc_text}",
+                f"  Photos saved: {len(photos)}",
+                "",
+                "**Dossier**",
+                f"  {len(entries)} entries" if entries else "  empty — connect Google or use /tip!",
+                "",
+                f"**Pending tips**: {len(tips)}",
+            ]
+
+            if not google:
+                lines.append("\nUse `/onboard` to get the link and connect Google.")
+
+            await interaction.followup.send("\n".join(lines), ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Error: {e}"[:200], ephemeral=True)
+
     # ── Admin commands ──────────────────────────────────────────────────
 
     @tree.command(name="reset", description="Start a fresh conversation with Donny")
