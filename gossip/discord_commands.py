@@ -57,9 +57,15 @@ def register_gossip_commands(adapter) -> None:
                 return
 
             token = group["invite_token"]
+
+            # Use tunnel URL if available, fallback to localhost
+            base_url = os.getenv("PORTAL_PUBLIC_URL", "").rstrip("/")
+            if not base_url:
+                base_url = "http://localhost:3000"
+
             msg = (
                 f"**Join the gossip group:**\n"
-                f"http://localhost:3000/join/{token}\n\n"
+                f"{base_url}/join/{token}\n\n"
                 f"Sign up, connect your Google account, and let Donny get to know you."
             )
             await interaction.followup.send(msg, ephemeral=True)

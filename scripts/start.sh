@@ -66,6 +66,10 @@ if command -v cloudflared &>/dev/null; then
         sleep 1
     done
 
+    if [ -n "$PUBLIC_URL" ]; then
+        export PORTAL_PUBLIC_URL="$PUBLIC_URL"
+    fi
+
     if [ -z "$PUBLIC_URL" ]; then
         echo "  Warning: Cloudflare tunnel started but URL not detected yet"
         echo "  Check /tmp/cloudflared.log for the URL"
