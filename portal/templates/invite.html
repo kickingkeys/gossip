@@ -16,21 +16,15 @@
 
     <form action="/onboard" method="post">
         <input type="hidden" name="invite_token" value="{{ invite_token }}">
+        <input type="hidden" name="platform" value="discord">
 
         <label for="display_name">What's your name?</label>
-        <input type="text" id="display_name" name="display_name" placeholder="Your name" required>
+        <input type="text" id="display_name" name="display_name" placeholder="Your first name" required>
 
-        <label>Which platform are you on?</label>
-        <div class="radio-group">
-            <label class="radio"><input type="radio" name="platform" value="discord" checked> Discord</label>
-            <label class="radio"><input type="radio" name="platform" value="telegram"> Telegram</label>
-            <label class="radio"><input type="radio" name="platform" value="both"> Both</label>
-        </div>
+        <label for="username">Your Discord username</label>
+        <input type="text" id="username" name="username" placeholder="e.g. kickingkeys" required>
 
-        <label for="username">Your username on that platform</label>
-        <input type="text" id="username" name="username" placeholder="e.g. kickingkeys">
-
-        <button type="submit">Continue</button>
+        <button type="submit">Join</button>
     </form>
 </div>
 {% endif %}

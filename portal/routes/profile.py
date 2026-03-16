@@ -9,11 +9,11 @@ from gossip.config import get_config
 from gossip.db import (
     add_manual_input,
     delete_member,
+    delete_oauth_token,
     get_member_by_portal_token,
     get_oauth_token,
     get_unused_manual_input,
     update_member,
-    delete_oauth_token,
 )
 from gossip.dossiers import (
     delete_dossier_entry,
@@ -45,8 +45,6 @@ async def profile_page(request: Request, portal_token: str):
 
     # Check connected sources
     google_token = get_oauth_token(member["id"], "google")
-    instagram_token = get_oauth_token(member["id"], "instagram")
-    twitter_token = get_oauth_token(member["id"], "twitter")
 
     return templates.TemplateResponse("profile.html", {
         "request": request,
@@ -58,8 +56,6 @@ async def profile_page(request: Request, portal_token: str):
         "dossier_entries": entries,
         "manual_inputs": manual_inputs,
         "google_connected": google_token is not None,
-        "instagram_connected": instagram_token is not None,
-        "twitter_connected": twitter_token is not None,
     })
 
 

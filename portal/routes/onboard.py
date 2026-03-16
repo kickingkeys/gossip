@@ -66,8 +66,6 @@ async def connect_sources_page(request: Request, portal_token: str):
     bot_email = os.getenv("GOSSIP_EMAIL", "gossipbot@gmail.com")
 
     google_oauth_enabled = bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID"))
-    instagram_enabled = bool(os.getenv("INSTAGRAM_APP_ID"))
-    twitter_enabled = bool(os.getenv("TWITTER_CLIENT_ID"))
 
     return templates.TemplateResponse("connect_sources.html", {
         "request": request,
@@ -75,6 +73,4 @@ async def connect_sources_page(request: Request, portal_token: str):
         "bot_name": cfg.bot.name,
         "bot_email": bot_email,
         "google_oauth_enabled": google_oauth_enabled,
-        "instagram_enabled": instagram_enabled,
-        "twitter_enabled": twitter_enabled,
     })

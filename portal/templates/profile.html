@@ -27,7 +27,7 @@
 
     <div class="source-list">
         <div class="source-row">
-            <span>Google Calendar / Gmail</span>
+            <span>Google (Calendar + Email)</span>
             {% if google_connected %}
             <span class="badge badge-ok">Connected</span>
             <form action="/me/{{ member.portal_token }}/disconnect/google" method="post" class="inline">
@@ -35,37 +35,14 @@
             </form>
             {% else %}
             <span class="badge badge-off">Not connected</span>
+            <a href="/auth/google/connect/{{ member.portal_token }}" class="btn-small">Connect</a>
             {% endif %}
         </div>
 
         <div class="source-row">
-            <span>Instagram</span>
-            {% if instagram_connected %}
-            <span class="badge badge-ok">Connected</span>
-            <form action="/me/{{ member.portal_token }}/disconnect/instagram" method="post" class="inline">
-                <button type="submit" class="btn-small btn-danger">Disconnect</button>
-            </form>
-            {% else %}
-            <span class="badge badge-off">Not connected</span>
-            {% endif %}
-        </div>
-
-        <div class="source-row">
-            <span>Twitter/X</span>
-            {% if twitter_connected %}
-            <span class="badge badge-ok">Connected</span>
-            <form action="/me/{{ member.portal_token }}/disconnect/twitter" method="post" class="inline">
-                <button type="submit" class="btn-small btn-danger">Disconnect</button>
-            </form>
-            {% else %}
-            <span class="badge badge-off">Not connected</span>
-            {% endif %}
-        </div>
-
-        <div class="source-row">
-            <span>Email forwarding</span>
-            <span class="badge badge-ok">Always on</span>
-            <span class="hint">Forward to {{ bot_email }}</span>
+            <span>Live Location</span>
+            <span class="badge badge-off">Manual setup</span>
+            <span class="hint">Share in Google Maps with {{ bot_email }}</span>
         </div>
     </div>
 </div>
@@ -83,7 +60,7 @@
     </div>
     {% endfor %}
     {% else %}
-    <p class="desc">Nothing yet. Connect some sources or tell the bot something!</p>
+    <p class="desc">Nothing yet. Connect Google or tell the bot something!</p>
     {% endif %}
 
     <details>
