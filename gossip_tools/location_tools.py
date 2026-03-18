@@ -191,12 +191,3 @@ registry.register(
     check_fn=_check,
     is_async=False,
 )
-
-registry.register(
-    name="gossip_member_locations",
-    toolset="gossip",
-    schema=LOCATIONS_SCHEMA,
-    handler=_handle_locations,
-    check_fn=_check,
-    is_async=False,
-)

@@ -11,12 +11,15 @@ from gossip.config import get_config
 from gossip.db import (
     get_chat_activity,
     get_default_group,
+    get_dm_history,
+    get_last_dm,
     get_members_by_group,
     get_members_with_location,
+    get_oauth_token,
     get_recent_gossip,
     get_unused_manual_input,
 )
-from gossip.dossiers import get_all_dossiers
+from gossip.dossiers import get_all_dossiers, read_dossier
 
 
 def is_quiet_hours() -> bool:
@@ -275,6 +278,94 @@ def get_manual_input_text(group_id: str | None = None) -> str:
     return "\n".join(lines) if lines else ""
 
 
+def get_investigation_notes(group_id: str | None = None) -> str:
+    """Flag knowledge gaps for the LLM: thin dossiers, absent members, never-DM'd."""
+    if group_id is None:
+        group = get_default_group()
+        if not group:
+            return ""
+        group_id = group["id"]
+
+    members = get_members_by_group(group_id)
+    if not members:
+        return ""
+
+    now = datetime.now(timezone.utc)
+    notes: list[str] = []
+
+    for m in members:
+        if m.get("is_paused"):
+            continue
+
+        name = m["display_name"]
+        flags: list[str] = []
+
+        # Thin dossier
+        dossier = read_dossier(name)
+        dossier_len = len(dossier) if "(no info yet)" not in dossier else 0
+        if dossier_len < 200:
+            flags.append(f"thin dossier ({dossier_len} chars)")
+
+        # Not seen in 2+ days (check chat activity)
+        activities = get_chat_activity(group_id)
+        last_seen = None
+        for a in activities:
+            if a.get("last_human_author") == name:
+                ts = datetime.fromisoformat(a["last_human_message_at"])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if last_seen is None or ts > last_seen:
+                    last_seen = ts
+
+        if last_seen is None:
+            flags.append("never seen in chat")
+        elif (now - last_seen).total_seconds() > 2 * 86400:
+            days = (now - last_seen).total_seconds() / 86400
+            flags.append(f"silent for {days:.0f} days")
+
+        # Never DM'd
+        last_dm = get_last_dm(m["id"])
+        if last_dm is None:
+            flags.append("never DM'd")
+
+        # No Google connected
+        google_token = get_oauth_token(m["id"], "google")
+        if not google_token:
+            flags.append("Google not connected — send them the onboarding link")
+
+        if flags:
+            notes.append(f"- **{name}**: {', '.join(flags)}")
+
+    return "\n".join(notes) if notes else "(all members well-covered)"
+
+
+def get_dm_conversations_text(group_id: str | None = None) -> str:
+    """Get recent DM conversations with each member for context."""
+    if group_id is None:
+        group = get_default_group()
+        if not group:
+            return ""
+        group_id = group["id"]
+
+    members = get_members_by_group(group_id)
+    if not members:
+        return ""
+
+    conversations: list[str] = []
+    for m in members:
+        history = get_dm_history(m["id"], limit=5)
+        if not history:
+            continue
+
+        lines = [f"**{m['display_name']}**:"]
+        for dm in reversed(history):  # Chronological order
+            direction = "→" if dm["direction"] == "outbound" else "←"
+            lines.append(f"  {direction} {dm['message_text'][:200]}")
+        conversations.append("\n".join(lines))
+
+    return "\n\n".join(conversations) if conversations else ""
+
+
 def build_gossip_context(group_id: str | None = None) -> str:
     """Assemble the full context window for gossip generation."""
     from gossip.logger import log_event, get_current_session_id
@@ -285,6 +376,8 @@ def build_gossip_context(group_id: str | None = None) -> str:
     history = get_gossip_history_text(group_id)
     manual = get_manual_input_text(group_id)
     locations = get_member_locations_text(group_id)
+    investigation = get_investigation_notes(group_id)
+    dm_convos = get_dm_conversations_text(group_id)
 
     parts = [
         "## Recent Chat",
@@ -299,9 +392,18 @@ def build_gossip_context(group_id: str | None = None) -> str:
         "## Group Dynamics",
         dynamics,
         "",
+        "## Investigation Notes",
+        investigation,
+    ]
+
+    if dm_convos:
+        parts.extend(["", "## Recent DM Conversations", dm_convos])
+
+    parts.extend([
+        "",
         "## Previous Gossip (don't repeat these)",
         history,
-    ]
+    ])
 
     if manual:
         parts.extend(["", "## Fresh Intel (from members directly)", manual])
@@ -318,6 +420,8 @@ def build_gossip_context(group_id: str | None = None) -> str:
             "history_chars": len(history),
             "manual_chars": len(manual),
             "locations_chars": len(locations),
+            "investigation_chars": len(investigation),
+            "dm_convos_chars": len(dm_convos),
             "total_chars": len(context),
             "has_manual_input": bool(manual),
         },

@@ -185,12 +185,3 @@ registry.register(
     check_fn=_check,
     is_async=False,
 )
-
-registry.register(
-    name="gossip_read_dynamics",
-    toolset="gossip",
-    schema=READ_SCHEMA,
-    handler=_handle_read,
-    check_fn=_check,
-    is_async=False,
-)

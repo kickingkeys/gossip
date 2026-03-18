@@ -87,12 +87,12 @@ def _():
         cfg = yaml.safe_load(f)
     assert cfg["model"] == "anthropic/claude-sonnet-4-20250514"
     assert cfg["discord"]["require_mention"] is False
-    assert cfg["discord"]["free_response_channels"] == "1482803423920521413"
+    assert cfg["discord"]["free_response_channels"] == "1483199527581253692"
     assert cfg["memory"]["memory_enabled"] is True
-    assert cfg["agent"]["max_turns"] == 10
+    assert cfg["agent"]["max_turns"] == 3
 
 
-@test("Gossip toolset registered and valid")
+@test("Gossip toolset registered and valid (13 tools)")
 def _():
     from toolsets import validate_toolset, get_toolset
     assert validate_toolset("gossip"), "gossip toolset not recognized"
@@ -100,28 +100,39 @@ def _():
     expected = {
         "gossip_check_idle", "gossip_build_context", "gossip_generate",
         "gossip_read_dossier", "gossip_update_dossier",
-        "gossip_list_members", "gossip_get_member",
-        "gossip_update_locations", "gossip_member_locations",
-        "gossip_update_dynamics", "gossip_read_dynamics",
-        "gossip_generate_image", "send_message",
+        "gossip_update_locations",
+        "gossip_update_dynamics",
+        "gossip_generate_image", "gossip_sync_sources",
+        "gossip_pick_dm_target", "gossip_log_dm",
+        "gossip_discover_members",
+        "send_message",
     }
     actual = set(info["tools"])
     assert actual == expected, f"Tool mismatch: {actual.symmetric_difference(expected)}"
 
 
-@test("All 11 gossip tools in Hermes registry")
+@test("All 10 gossip tools in Hermes registry")
 def _():
     from tools.registry import registry
     all_tools = registry.get_all_tool_names()
     expected = [
         "gossip_check_idle", "gossip_build_context", "gossip_generate",
         "gossip_read_dossier", "gossip_update_dossier",
-        "gossip_list_members", "gossip_get_member",
-        "gossip_update_locations", "gossip_member_locations",
-        "gossip_update_dynamics", "gossip_read_dynamics",
+        "gossip_update_locations",
+        "gossip_update_dynamics",
+        "gossip_pick_dm_target", "gossip_log_dm",
+        "gossip_discover_members",
     ]
     for tool in expected:
         assert tool in all_tools, f"Tool {tool} not in registry"
+
+
+@test("Removed tools are NOT in registry")
+def _():
+    from tools.registry import registry
+    all_tools = registry.get_all_tool_names()
+    for removed in ["gossip_list_members", "gossip_get_member", "gossip_member_locations", "gossip_read_dynamics"]:
+        assert removed not in all_tools, f"Removed tool {removed} still in registry"
 
 
 @test("config/skills/gossip symlink resolves")
@@ -160,23 +171,36 @@ def _():
 def _():
     from cron.jobs import load_jobs
     jobs = load_jobs()
-    assert len(jobs) == 3, f"Expected 3 jobs, got {len(jobs)}"
+    assert len(jobs) == 4, f"Expected 4 jobs, got {len(jobs)}"
 
     idle_job = next((j for j in jobs if j["id"] == "gossip-idle-01"), None)
     assert idle_job is not None, "gossip-idle-01 not found"
     assert idle_job["enabled"] is True
     assert idle_job["schedule"]["kind"] == "interval"
     assert idle_job["schedule"]["minutes"] == 30
-    assert "1482803423920521413" in idle_job["deliver"]
+    assert "1483199527581253692" in idle_job["deliver"]
+    assert "gossip_check_idle" in idle_job["prompt"], "Idle job prompt should call gossip_check_idle"
 
-    cal_job = next((j for j in jobs if j["id"] == "calendar-sync-01"), None)
-    assert cal_job is not None, "calendar-sync-01 not found"
-    assert cal_job["enabled"] is False
+    sync_job = next((j for j in jobs if j["id"] == "source-sync-01"), None)
+    assert sync_job is not None, "source-sync-01 not found"
+    assert sync_job["enabled"] is True
 
+    checkin_job = next((j for j in jobs if j["id"] == "dm-checkin-01"), None)
+    assert checkin_job is not None, "dm-checkin-01 not found"
+    assert checkin_job["enabled"] is True
+    assert checkin_job["schedule"]["minutes"] == 360
+    assert checkin_job["deliver"] == "local"
+    assert "gossip_pick_dm_target" in checkin_job["prompt"]
+
+    discover_job = next((j for j in jobs if j["id"] == "onboard-discover-01"), None)
+    assert discover_job is not None, "onboard-discover-01 not found"
+    assert discover_job["enabled"] is True
+    assert discover_job["schedule"]["minutes"] == 720
+    assert "gossip_discover_members" in discover_job["prompt"]
+
+    # location-check-01 should be gone
     loc_job = next((j for j in jobs if j["id"] == "location-check-01"), None)
-    assert loc_job is not None, "location-check-01 not found"
-    assert loc_job["enabled"] is False
-    assert loc_job["schedule"]["minutes"] == 30
+    assert loc_job is None, "location-check-01 should have been removed"
 
 
 # ── Phase 3: Chat History Capture ────────────────────────────────────────
@@ -229,11 +253,15 @@ def _():
     assert activities[0]["last_human_author"] == "TestUser"
 
 
-@test("SKILL.md has Silent Observation Mode")
+@test("SKILL.md has behavioral guide structure")
 def _():
     content = (PROJECT_ROOT / "skills" / "gossip" / "SKILL.md").read_text()
-    assert "Silent Observation Mode" in content
-    assert "return empty text" in content
+    assert "Know Your Gaps" in content
+    assert "Say One Thing" in content
+    assert "DM Check-ins" in content
+    assert "When You Respond" in content
+    assert "gossip_pick_dm_target" in content
+    assert "gossip_log_dm" in content
 
 
 # ── Phase 4: Portal & Gossip Gen ─────────────────────────────────────────
@@ -484,14 +512,6 @@ def _():
     assert result["updated"] == 1, f"Expected 1 updated, got {result['updated']}"
 
 
-@test("gossip_member_locations tool returns locations and distances")
-def _():
-    from gossip_tools.location_tools import _handle_locations
-    result = json.loads(_handle_locations({}))
-    assert "locations" in result
-    assert "proximities" in result
-
-
 @test("build_gossip_context includes Member Locations section")
 def _():
     from gossip.engine import build_gossip_context
@@ -504,15 +524,6 @@ def _():
     content = (PROJECT_ROOT / "portal" / "routes" / "map_view.py").read_text()
     assert "/map/{invite_token}" in content
     assert "map.html" in content
-
-
-@test("Location cron job exists in jobs.json (disabled)")
-def _():
-    with open(PROJECT_ROOT / "config" / "cron" / "jobs.json") as f:
-        data = json.load(f)
-    loc_job = next((j for j in data["jobs"] if j["id"] == "location-check-01"), None)
-    assert loc_job is not None, "location-check-01 not found"
-    assert loc_job["enabled"] is False
 
 
 # ── Phase 9: Group Dynamics Tests ────────────────────────────────────────
@@ -528,15 +539,6 @@ def _():
     }))
     assert result.get("success") is True
     assert result["entries_added"] == 2
-
-
-@test("gossip_read_dynamics tool returns content")
-def _():
-    from gossip_tools.dynamics_tools import _handle_read
-
-    result = json.loads(_handle_read({}))
-    assert "dynamics" in result
-    assert len(result["dynamics"]) > 0
 
 
 @test("Compaction keeps content under 2000 chars")
@@ -574,6 +576,145 @@ def _():
     from gossip.engine import build_gossip_context
     context = build_gossip_context()
     assert "## Group Dynamics" in context
+
+
+# ── Phase 10: DM History Tests ───────────────────────────────────────────
+
+
+@test("dm_history table exists in DB")
+def _():
+    from gossip.db import init_db, get_connection
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dm_history'")
+        assert cursor.fetchone() is not None, "dm_history table missing"
+
+
+@test("discord_dm_channel_id column exists in members")
+def _():
+    from gossip.db import init_db, get_connection
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.execute("PRAGMA table_info(members)")
+        columns = {row[1] for row in cursor.fetchall()}
+    assert "discord_dm_channel_id" in columns, "discord_dm_channel_id column missing"
+
+
+@test("log_dm and get_last_dm work end-to-end")
+def _():
+    from gossip.db import init_db, create_group, create_member, log_dm, get_last_dm, get_dm_history
+
+    init_db()
+    group = create_group("test-dm-history")
+    member = create_member(group["id"], "DMTestMember")
+
+    # No DMs yet
+    assert get_last_dm(member["id"]) is None
+
+    # Log a DM
+    dm_id = log_dm(member["id"], "hey what's up", direction="outbound")
+    assert dm_id is not None
+
+    # Check last DM
+    last = get_last_dm(member["id"])
+    assert last is not None
+    assert last["message_text"] == "hey what's up"
+    assert last["direction"] == "outbound"
+
+    # Log another
+    log_dm(member["id"], "not much, you?", direction="inbound")
+
+    # History should have 2
+    history = get_dm_history(member["id"])
+    assert len(history) == 2
+
+
+@test("gossip_pick_dm_target tool returns valid structure")
+def _():
+    from gossip_tools.intel_tools import _handle_pick
+    result = json.loads(_handle_pick({}))
+    # Should either have a target or an error (if no members)
+    assert "target" in result or "error" in result
+
+
+@test("gossip_log_dm tool works")
+def _():
+    from gossip_tools.intel_tools import _handle_log_dm
+    from gossip.db import init_db, get_default_group, create_member
+
+    init_db()
+    group = get_default_group()
+    assert group is not None
+    create_member(group["id"], "DMLogToolTest")
+
+    result = json.loads(_handle_log_dm({
+        "member_name": "DMLogToolTest",
+        "message_text": "hey just checking in",
+    }))
+    assert result.get("success") is True, f"Tool failed: {result}"
+    assert result.get("dm_id") is not None
+
+
+@test("build_gossip_context includes Investigation Notes")
+def _():
+    from gossip.engine import build_gossip_context
+    context = build_gossip_context()
+    assert "## Investigation Notes" in context
+
+
+@test("member_tools.py is deleted")
+def _():
+    assert not (PROJECT_ROOT / "gossip_tools" / "member_tools.py").exists(), "member_tools.py should be deleted"
+
+
+@test("build_gossip_context includes DM conversations when present")
+def _():
+    from gossip.db import init_db, create_group, create_member, log_dm
+    from gossip.engine import get_dm_conversations_text
+
+    init_db()
+    group = create_group("test-dm-context")
+    member = create_member(group["id"], "DMContextTest")
+    log_dm(member["id"], "hey how are you", direction="outbound")
+    log_dm(member["id"], "good! just busy", direction="inbound")
+
+    text = get_dm_conversations_text(group["id"])
+    assert "DMContextTest" in text
+    assert "hey how are you" in text
+    assert "good! just busy" in text
+
+
+@test("Deep sync functions exist in sources")
+def _():
+    from gossip.sources.gmail import deep_sync_member_gmail
+    from gossip.sources.calendar import deep_sync_member_calendar, fetch_past_events
+    assert callable(deep_sync_member_gmail)
+    assert callable(deep_sync_member_calendar)
+    assert callable(fetch_past_events)
+
+
+@test("OAuth callback triggers deep sync")
+def _():
+    content = (PROJECT_ROOT / "portal" / "routes" / "oauth_google.py").read_text()
+    assert "deep_sync_member_calendar" in content
+    assert "deep_sync_member_gmail" in content
+    assert "threading.Thread" in content
+
+
+@test("gossip_discover_members tool exists in registry")
+def _():
+    from tools.registry import registry
+    all_tools = registry.get_all_tool_names()
+    assert "gossip_discover_members" in all_tools
+
+
+@test("SKILL.md includes key sections")
+def _():
+    content = (PROJECT_ROOT / "skills" / "gossip" / "SKILL.md").read_text()
+    assert "Onboarding" in content
+    assert "gossip_discover_members" in content
+    assert "Referencing People" in content
+    assert "Language Rules" in content
 
 
 # ── Summary ──────────────────────────────────────────────────────────────

@@ -1,10 +1,10 @@
-DISCORD_HOME_CHANNEL: '1482803423920521413'
+DISCORD_HOME_CHANNEL: '1483199527581253692'
 agent:
-  max_turns: 10
+  max_turns: 3
   reasoning_effort: medium
 discord:
   auto_thread: false
-  free_response_channels: '1482803423920521413'
+  free_response_channels: '1483199527581253692'
   require_mention: false
 memory:
   memory_enabled: true

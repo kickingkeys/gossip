@@ -1,324 +1,51 @@
-"""Custom Discord slash commands for Gossip Bot.
+"""Discord adapter patches for Gossip Bot.
 
-Monkey-patches the Hermes Discord adapter to replace the default
-22 admin commands with gossip-relevant ones.
+Single handler that gates messages, logs chat, triggers responses
+only on @mentions/DMs/"donny" keyword, and fires startup outreach.
 """
 
 import os
-import json
-import time
+import threading
 from pathlib import Path
 
 import discord
 
 _project_root = Path(__file__).resolve().parent.parent
 
+# #welcome channel — the ONLY channel the bot actively participates in
+HOME_CHANNEL_ID = "1483199527581253692"
+
 
 def register_gossip_commands(adapter) -> None:
-    """Register gossip-specific slash commands, replacing Hermes defaults."""
+    """Register minimal slash commands, replacing Hermes defaults."""
     if not adapter._client:
         return
 
     tree = adapter._client.tree
 
-    # ── /tea ────────────────────────────────────────────────────────────
-
-    @tree.command(name="tea", description="Ask Donny to spill some tea")
-    @discord.app_commands.describe(topic="Optional topic or person to gossip about")
-    async def slash_tea(interaction: discord.Interaction, topic: str = ""):
-        prompt = topic if topic else "spill the tea"
-        await interaction.response.defer()
-        try:
-            event = _build_event(adapter, interaction, prompt)
-            response = await adapter._message_handler(event) if adapter._message_handler else None
-            if response:
-                await interaction.followup.send(response[:2000])
-            else:
-                await interaction.followup.send("hmm... nothing to spill rn. try again later")
-        except Exception as e:
-            try:
-                await interaction.followup.send(f"oops: {e}"[:200])
-            except Exception:
-                pass
-
-    # ── /onboard ────────────────────────────────────────────────────────
-
-    @tree.command(name="onboard", description="Get the link to join the gossip group")
-    async def slash_onboard(interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            from gossip.db import get_default_group
-            from gossip.config import load_config
-            load_config()
-
-            group = get_default_group()
-            if not group:
-                await interaction.followup.send("No group configured yet!", ephemeral=True)
-                return
-
-            token = group["invite_token"]
-
-            # Use tunnel URL if available, fallback to localhost
-            base_url = _get_public_url()
-
-            msg = (
-                f"**Join the gossip group:**\n"
-                f"{base_url}/join/{token}\n\n"
-                f"Sign up, connect your Google account, and let Donny get to know you."
-            )
-            await interaction.followup.send(msg, ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}"[:200], ephemeral=True)
-
-    # ── /whois ──────────────────────────────────────────────────────────
-
-    @tree.command(name="whois", description="What does Donny know about someone?")
-    @discord.app_commands.describe(name="Person's name")
-    async def slash_whois(interaction: discord.Interaction, name: str):
-        await interaction.response.defer()
-        try:
-            event = _build_event(adapter, interaction, f"what do you know about {name}? check their dossier")
-            response = await adapter._message_handler(event) if adapter._message_handler else None
-            if response:
-                await interaction.followup.send(response[:2000])
-            else:
-                await interaction.followup.send(f"i got nothing on {name}... yet")
-        except Exception as e:
-            try:
-                await interaction.followup.send(f"oops: {e}"[:200])
-            except Exception:
-                pass
-
-    # ── /tip ────────────────────────────────────────────────────────────
-
-    @tree.command(name="tip", description="Drop some gossip intel for Donny")
-    @discord.app_commands.describe(intel="The tea you want to share")
-    async def slash_tip(interaction: discord.Interaction, intel: str):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            from gossip.db import get_default_group, get_members_by_group, add_manual_input
-            from gossip.config import load_config
-            load_config()
-
-            group = get_default_group()
-            if not group:
-                await interaction.followup.send("No group configured!", ephemeral=True)
-                return
-
-            member = _find_member(interaction.user)
-            if member:
-                add_manual_input(member["id"], intel, source="discord")
-                await interaction.followup.send(
-                    "noted. donny will use this next time gossip drops.",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    "i don't know who you are yet! use /onboard to join first.",
-                    ephemeral=True,
-                )
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}"[:200], ephemeral=True)
-
-    # ── /imagine ────────────────────────────────────────────────────────
-
-    @tree.command(name="imagine", description="Generate an image with AI")
-    @discord.app_commands.describe(
-        prompt="What to generate (e.g., 'a cat wearing a crown')",
-        about="Optional: person's name to make it about them",
-    )
-    async def slash_imagine(interaction: discord.Interaction, prompt: str, about: str = ""):
-        await interaction.response.defer()
-        try:
-            from gossip.config import load_config
-            load_config()
-
-            # If about a person, enrich the prompt with their dossier context
-            full_prompt = prompt
-            if about:
-                from gossip.dossiers import read_dossier
-                dossier = read_dossier(about)
-                if "(no info yet)" not in dossier:
-                    # Extract key details from dossier for context
-                    full_prompt = (
-                        f"{prompt}. Context about {about}: {dossier[:300]}"
-                    )
-
-                # Check for saved photos of this person
-                member_pics = _get_member_images(about)
-                if member_pics:
-                    full_prompt += f". Reference: this person has {len(member_pics)} saved photo(s)."
-
-            # Generate via Gemini
-            from gossip_tools.image_tools import _handler
-            result = json.loads(_handler({"prompt": full_prompt}))
-
-            if result.get("success"):
-                image_path = result["image_path"]
-                await interaction.followup.send(
-                    f"*{prompt}*" + (f" (about {about})" if about else ""),
-                    file=discord.File(image_path, filename="donny_creation.png"),
-                )
-
-                # Save to member's image folder if about someone
-                if about:
-                    _save_member_image(about, image_path, prompt)
-            else:
-                await interaction.followup.send(f"couldn't generate that: {result.get('error', 'unknown')}"[:500])
-        except Exception as e:
-            try:
-                await interaction.followup.send(f"image gen failed: {e}"[:200])
-            except Exception:
-                pass
-
-    # ── /savepic ────────────────────────────────────────────────────────
-
-    @tree.command(name="savepic", description="Save an attached photo to someone's profile")
-    @discord.app_commands.describe(
-        name="Who is in this photo?",
-        photo="The image to save",
-    )
-    async def slash_savepic(
-        interaction: discord.Interaction,
-        name: str,
-        photo: discord.Attachment,
-    ):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            if not photo.content_type or not photo.content_type.startswith("image/"):
-                await interaction.followup.send("That's not an image!", ephemeral=True)
-                return
-
-            from gossip.config import load_config
-            load_config()
-
-            # Download the image
-            ext = photo.content_type.split("/")[-1]
-            if ext == "jpeg":
-                ext = "jpg"
-
-            member_dir = _project_root / "data" / "images" / "members" / name.lower().replace(" ", "_")
-            member_dir.mkdir(parents=True, exist_ok=True)
-
-            filename = f"{int(time.time())}.{ext}"
-            save_path = member_dir / filename
-
-            image_data = await photo.read()
-            with open(save_path, "wb") as f:
-                f.write(image_data)
-
-            # Update dossier
-            from gossip.dossiers import append_dossier_from_source
-            append_dossier_from_source(
-                name, "photo",
-                f"Photo saved by {interaction.user.display_name} ({filename})",
-            )
-
-            count = len(list(member_dir.glob("*")))
-            await interaction.followup.send(
-                f"saved! donny now has {count} photo(s) of {name}. this will be used for context in image generation.",
-                ephemeral=True,
-            )
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}"[:200], ephemeral=True)
-
-    # ── /help ────────────────────────────────────────────────────────────
-
-    @tree.command(name="help", description="Show what Donny can do")
-    async def slash_help(interaction: discord.Interaction):
-        msg = (
-            "**Donny — your group's gossip bot**\n\n"
-            "**Chat Commands**\n"
-            "`/tea [topic]` — ask Donny to spill gossip (optionally about someone)\n"
-            "`/whois [name]` — what does Donny know about someone?\n"
-            "`/tip [intel]` — drop gossip intel privately for Donny to use\n\n"
-            "**Images**\n"
-            "`/imagine [prompt]` — generate an AI image\n"
-            "`/imagine [prompt] about:[name]` — generate using someone's context\n"
-            "`/savepic [name] [photo]` — save a photo of someone for Donny\n\n"
-            "**Account**\n"
-            "`/onboard` — get the link to join the group\n"
-            "`/status` — see what Donny knows about you + connected sources\n\n"
-            "**Admin**\n"
-            "`/reset` — fresh conversation\n"
-            "`/stop` — stop Donny mid-response\n"
-            "`/sethome` — set this channel for gossip drops\n\n"
-            "You can also just `@Donny` in chat to talk directly."
-        )
-        await interaction.response.send_message(msg, ephemeral=True)
-
-    # ── /status ─────────────────────────────────────────────────────────
-
-    @tree.command(name="status", description="See what Donny knows about you")
-    async def slash_status(interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            from gossip.db import get_default_group, get_oauth_token, get_unused_manual_input
-            from gossip.dossiers import read_dossier, list_dossier_entries
-            from gossip.config import load_config
-            load_config()
-
-            member = _find_member(interaction.user)
-            if not member:
-                await interaction.followup.send(
-                    "You haven't onboarded yet! Use `/onboard` to get the invite link.",
-                    ephemeral=True,
-                )
-                return
-
-            name = member["display_name"]
-
-            # Check connected sources
-            google = get_oauth_token(member["id"], "google")
-            entries = list_dossier_entries(name)
-            tips = get_unused_manual_input(member["id"])
-            photos = _get_member_images(name)
-
-            # Location
-            has_location = member.get("latitude") is not None
-            loc_text = f"{member.get('location_name', '?')}" if has_location else "not shared"
-
-            lines = [
-                f"**{name}** (@{member.get('discord_username', '?')})\n",
-                "**Connected Sources**",
-                f"  Google (Calendar + Email): {'connected' if google else 'not connected'}",
-                f"  Live Location: {loc_text}",
-                f"  Photos saved: {len(photos)}",
-                "",
-                "**Dossier**",
-                f"  {len(entries)} entries" if entries else "  empty — connect Google or use /tip!",
-                "",
-                f"**Pending tips**: {len(tips)}",
-            ]
-
-            if not google:
-                lines.append("\nUse `/onboard` to get the link and connect Google.")
-
-            await interaction.followup.send("\n".join(lines), ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}"[:200], ephemeral=True)
-
-    # ── Admin commands ──────────────────────────────────────────────────
-
-    @tree.command(name="reset", description="Start a fresh conversation with Donny")
-    async def slash_reset(interaction: discord.Interaction):
-        await adapter._run_simple_slash(interaction, "/reset", "fresh start~")
-
     @tree.command(name="stop", description="Stop Donny if he's going off")
     async def slash_stop(interaction: discord.Interaction):
         await adapter._run_simple_slash(interaction, "/stop", "ok ok i'll stop")
 
-    @tree.command(name="sethome", description="Set this channel as Donny's home")
-    async def slash_sethome(interaction: discord.Interaction):
-        await adapter._run_simple_slash(interaction, "/sethome")
+
+# ── Discord REST helpers ────────────────────────────────────────────────
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
+def _get_discord_bot_token() -> str | None:
+    """Get the Discord bot token from env or .env file."""
+    token = os.environ.get("DISCORD_BOT_TOKEN")
+    if not token:
+        try:
+            from dotenv import dotenv_values
+            env = dotenv_values(_project_root / "config" / ".env")
+            token = env.get("DISCORD_BOT_TOKEN")
+        except Exception:
+            pass
+    return token
 
 
 def _get_public_url() -> str:
-    """Get the public portal URL, always re-reading .env since tunnel URL
-    is written after processes start."""
+    """Get the public portal URL, re-reading .env for tunnel URL."""
     try:
         from dotenv import dotenv_values
         env = dotenv_values(_project_root / "config" / ".env")
@@ -330,25 +57,198 @@ def _get_public_url() -> str:
     return os.getenv("PORTAL_PUBLIC_URL", "http://localhost:3000").rstrip("/")
 
 
-def _build_event(adapter, interaction, text):
-    """Build a MessageEvent from a slash command interaction."""
-    from gateway.platforms.base import MessageEvent, MessageType
+def _send_discord_dm(bot_token: str, user_id: str, message: str) -> dict:
+    """Send a DM to a Discord user via REST API."""
+    import requests
+    headers = {"Authorization": f"Bot {bot_token}", "Content-Type": "application/json"}
 
-    source = adapter.build_source(
-        chat_id=str(interaction.channel_id),
-        chat_name=getattr(interaction.channel, "name", "unknown"),
-        chat_type="group",
-        user_id=str(interaction.user.id),
-        user_name=interaction.user.display_name,
-    )
+    dm_resp = requests.post(
+        "https://discord.com/api/v10/users/@me/channels",
+        headers=headers,
+        json={"recipient_id": user_id},
+        timeout=10,
+    ).json()
 
-    return MessageEvent(
-        text=text,
-        message_type=MessageType.TEXT,
-        source=source,
-        raw_message=None,
-        message_id=str(interaction.id),
+    dm_channel_id = dm_resp.get("id")
+    if not dm_channel_id:
+        raise Exception(f"Can't open DM channel: {dm_resp}")
+
+    send_resp = requests.post(
+        f"https://discord.com/api/v10/channels/{dm_channel_id}/messages",
+        headers=headers,
+        json={"content": message},
+        timeout=10,
     )
+    send_resp.raise_for_status()
+
+    return {"dm_channel_id": dm_channel_id, "message_id": send_resp.json().get("id")}
+
+
+def _fetch_guild_members() -> list[dict]:
+    """Fetch all members from the bot's Discord guilds."""
+    import requests
+    token = _get_discord_bot_token()
+    if not token:
+        return []
+
+    headers = {"Authorization": f"Bot {token}"}
+
+    guilds = requests.get(
+        "https://discord.com/api/v10/users/@me/guilds",
+        headers=headers, timeout=10,
+    ).json()
+
+    all_members = []
+    for guild in guilds:
+        try:
+            members = requests.get(
+                f"https://discord.com/api/v10/guilds/{guild['id']}/members?limit=1000",
+                headers=headers, timeout=15,
+            ).json()
+            if isinstance(members, list):
+                all_members.extend(members)
+        except Exception:
+            pass
+
+    return all_members
+
+
+# ── Startup outreach ────────────────────────────────────────────────────
+
+
+def _run_startup_outreach():
+    """DM every member who hasn't connected Google with an intro + onboarding link."""
+    import time
+    time.sleep(10)
+
+    try:
+        from gossip.db import (
+            get_default_group, get_members_by_group, get_oauth_token,
+            get_last_dm, log_dm, update_member,
+        )
+        from gossip.config import load_config
+        load_config()
+
+        group = get_default_group()
+        if not group:
+            print("[gossip] Startup outreach: no group configured", flush=True)
+            return
+
+        bot_token = _get_discord_bot_token()
+        if not bot_token:
+            print("[gossip] Startup outreach: no DISCORD_BOT_TOKEN", flush=True)
+            return
+
+        base_url = _get_public_url()
+        onboarding_url = f"{base_url}/join/{group['invite_token']}"
+
+        # Fetch guild members ONCE and build lookup maps
+        guild_members = _fetch_guild_members()
+        username_to_id = {}
+        globalname_to_id = {}
+        for gm in guild_members:
+            user = gm.get("user", {})
+            if user.get("bot"):
+                continue
+            uid = user.get("id")
+            if user.get("username"):
+                username_to_id[user["username"].lower()] = uid
+            if user.get("global_name"):
+                globalname_to_id[user["global_name"].lower()] = uid
+
+        print(f"[gossip] Startup outreach: found {len(username_to_id)} server members", flush=True)
+
+        members = get_members_by_group(group["id"])
+        sent = 0
+
+        for m in members:
+            if get_oauth_token(m["id"], "google"):
+                continue
+            if get_last_dm(m["id"]):
+                continue
+
+            discord_id = m.get("discord_id")
+            if not discord_id:
+                uname = (m.get("discord_username") or "").lower()
+                dname = m["display_name"].lower()
+                discord_id = username_to_id.get(uname) or globalname_to_id.get(dname) or globalname_to_id.get(uname)
+
+            if not discord_id:
+                print(f"[gossip] Startup outreach: can't resolve {m['display_name']} (@{m.get('discord_username')})", flush=True)
+                continue
+
+            try:
+                msg = (
+                    f"hey i'm donny, i'm in the group chat. "
+                    f"link your google here if you want: {onboarding_url}"
+                )
+                result = _send_discord_dm(bot_token, discord_id, msg)
+                update_member(m["id"], discord_id=discord_id, discord_dm_channel_id=result["dm_channel_id"])
+                log_dm(m["id"], msg, direction="outbound")
+                sent += 1
+                print(f"[gossip] Startup outreach: DM'd {m['display_name']}", flush=True)
+                time.sleep(2)
+            except Exception as e:
+                print(f"[gossip] Startup outreach failed for {m['display_name']}: {e}", flush=True)
+
+        print(f"[gossip] Startup outreach complete: {sent} DMs sent", flush=True)
+
+    except Exception as e:
+        print(f"[gossip] Startup outreach error: {e}", flush=True)
+
+
+# ── Emoji reactions (Haiku) ─────────────────────────────────────────────
+
+
+async def _maybe_react(message):
+    """Cheap Haiku call to decide whether to emoji-react to a message."""
+    content = message.content or ""
+    if len(content) < 5 or message.author.bot:
+        return
+
+    try:
+        from gossip.identity import resolve_member
+        member = resolve_member(platform="discord", user_id=str(message.author.id))
+        username = member["display_name"] if member else message.author.display_name
+
+        from gossip.dossiers import read_dossier
+        from gossip.engine import get_group_dynamics
+
+        dossier = read_dossier(username) if member else ""
+        dynamics = get_group_dynamics()
+
+        import anthropic
+        client_api = anthropic.Anthropic()
+
+        response = client_api.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=20,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"You are Donny, a nosy friend in a group chat. "
+                    f"Someone named {username} just said: \"{content}\"\n\n"
+                    f"What you know about them: {dossier[:300]}\n"
+                    f"Group dynamics: {dynamics[:300]}\n\n"
+                    f"Should you react with an emoji? Most messages (80%+) you ignore. "
+                    f"Only react if something is genuinely funny, suspicious, or noteworthy. "
+                    f"If yes, respond with JUST the emoji. If no, respond with exactly: SKIP\n"
+                    f"Choose from: 👀 💀 🤔 😭 🔥"
+                ),
+            }],
+        )
+
+        result = response.content[0].text.strip()
+        if result != "SKIP" and len(result) <= 4:
+            try:
+                await message.add_reaction(result)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────
 
 
 def _find_member(user):
@@ -368,52 +268,46 @@ def _find_member(user):
     return None
 
 
-def _get_member_images(name: str) -> list[Path]:
-    """Get all saved images for a member."""
-    member_dir = _project_root / "data" / "images" / "members" / name.lower().replace(" ", "_")
-    if not member_dir.exists():
-        return []
-    return sorted(member_dir.glob("*"))
-
-
-def _save_member_image(name: str, source_path: str, prompt: str) -> None:
-    """Copy a generated image to a member's image folder."""
-    import shutil
-
-    member_dir = _project_root / "data" / "images" / "members" / name.lower().replace(" ", "_")
-    member_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = f"gen_{int(time.time())}.png"
-    dest = member_dir / filename
-    shutil.copy2(source_path, dest)
+# ── Main patch ──────────────────────────────────────────────────────────
 
 
 def patch_discord_adapter():
-    """Monkey-patch the DiscordAdapter to use gossip commands and silent lurk mode."""
+    """Monkey-patch the DiscordAdapter with a single, clean handler."""
     from gateway.platforms.discord import DiscordAdapter
     import discord as _discord
 
-    # Replace slash commands
     DiscordAdapter._register_slash_commands = lambda self: register_gossip_commands(self)
 
-    # Patch message handling: silently log non-mention messages without running the LLM.
-    # This makes Donny lurk and only respond when @mentioned, while still
-    # capturing all chat for gossip context.
     _original_handle_message = DiscordAdapter._handle_message
+    _outreach_fired = {"done": False}
 
-    async def _gossip_handle_message(self, message):
-        """Only process @mentions through the LLM. Log everything else silently."""
-        # Always capture the message for chat history + idle timer
+    async def _gossip_handler(self, message):
+        """Single handler: gate channels, log chat, respond to triggers only."""
+
+        # ── Fire startup outreach once ──
+        if not _outreach_fired["done"]:
+            _outreach_fired["done"] = True
+            threading.Thread(target=_run_startup_outreach, daemon=True).start()
+
+        # ── Classify the message ──
+        is_dm = isinstance(message.channel, _discord.DMChannel)
+        is_mentioned = self._client.user in message.mentions if self._client.user else False
+        in_home = str(getattr(message.channel, "id", "")) == HOME_CHANNEL_ID
+        content = message.content or ""
+        says_donny = "donny" in content.lower()
+
+        # ── Gate: ignore messages outside #welcome unless DM or @mention ──
+        if not is_dm and not is_mentioned and not in_home:
+            return
+
+        # ── Log to chat history (all #welcome messages + DMs) ──
+        member = None
         try:
-            platform = "discord"
-            user_id = str(message.author.id)
-            content = message.content or ""
-
             from gossip.identity import resolve_member
             from gossip.engine import append_chat_log
             from gossip.db import update_chat_activity, get_default_group
 
-            member = resolve_member(platform=platform, user_id=user_id)
+            member = resolve_member(platform="discord", user_id=str(message.author.id))
             username = member["display_name"] if member else message.author.display_name
 
             append_chat_log(username=username, content=content)
@@ -422,19 +316,29 @@ def patch_discord_adapter():
             if group:
                 update_chat_activity(
                     group_id=group["id"],
-                    platform=platform,
+                    platform="discord",
                     channel_id=str(message.channel.id),
                     author=username,
                 )
         except Exception as e:
             print(f"[gossip] Chat capture error: {e}", flush=True)
 
-        # Only run the LLM if the bot is @mentioned or it's a DM
-        is_mentioned = self._client.user in message.mentions if self._client.user else False
-        is_dm = isinstance(message.channel, _discord.DMChannel)
+        # ── Log inbound DMs ──
+        if is_dm and member:
+            try:
+                from gossip.db import log_dm
+                log_dm(member["id"], content, direction="inbound")
+            except Exception as e:
+                print(f"[gossip] DM log error: {e}", flush=True)
 
-        if is_mentioned or is_dm:
+        # ── Decide: respond or stay silent ──
+        should_respond = is_dm or is_mentioned or says_donny
+
+        if should_respond:
             await _original_handle_message(self, message)
-        # else: silently drop — message is already logged
+        elif in_home and not message.author.bot:
+            # Not triggered — just maybe react with emoji
+            import asyncio
+            asyncio.create_task(_maybe_react(message))
 
-    DiscordAdapter._handle_message = _gossip_handle_message
+    DiscordAdapter._handle_message = _gossip_handler

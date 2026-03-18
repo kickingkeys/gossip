@@ -168,6 +168,141 @@ def sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
     return events
 
 
+def fetch_past_events(
+    credentials=None,
+    calendar_id: str = "primary",
+    days_back: int = 30,
+    max_results: int = 50,
+) -> list[dict[str, Any]]:
+    """Fetch past calendar events."""
+    try:
+        service = _get_calendar_service(credentials)
+        now = datetime.now(timezone.utc)
+        time_min = (now - timedelta(days=days_back)).isoformat()
+        time_max = now.isoformat()
+
+        result = (
+            service.events()
+            .list(
+                calendarId=calendar_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                maxResults=max_results,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+
+        events = []
+        for event in result.get("items", []):
+            start = event.get("start", {})
+            events.append({
+                "summary": event.get("summary", "(no title)"),
+                "start": start.get("dateTime", start.get("date", "")),
+                "end": event.get("end", {}).get("dateTime", ""),
+                "location": event.get("location", ""),
+                "description": (event.get("description") or "")[:200],
+            })
+        return events
+
+    except Exception as e:
+        from gossip.logger import log_event
+        log_event(
+            event_type="calendar_sync",
+            event_subtype="error",
+            summary=f"Calendar past fetch failed: {e}",
+            payload={"calendar_id": calendar_id, "error": str(e)},
+        )
+        return [{"error": str(e)}]
+
+
+def deep_sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
+    """One-time deep sync: pull 30 days past + 30 days future to bootstrap a dossier."""
+    from gossip.logger import log_event
+
+    token_data = get_oauth_token(member_id, "google")
+    if not token_data:
+        return []
+
+    from google.oauth2.credentials import Credentials
+
+    creds = Credentials(
+        token=token_data["access_token"],
+        refresh_token=token_data.get("refresh_token"),
+        client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID"),
+        client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+        token_uri="https://oauth2.googleapis.com/token",
+    )
+
+    # Past events
+    past = fetch_past_events(credentials=creds, days_back=30, max_results=50)
+    # Future events
+    future = fetch_upcoming_events(credentials=creds, days_ahead=30, max_results=30)
+
+    lines = []
+
+    # Analyze past events for patterns
+    if past and "error" not in past[0]:
+        location_counts: dict[str, int] = {}
+        event_types: dict[str, int] = {}
+        for ev in past:
+            title = ev["summary"].lower()
+            if ev.get("location"):
+                loc = ev["location"].split(",")[0].strip()
+                location_counts[loc] = location_counts.get(loc, 0) + 1
+            # Simple categorization
+            for keyword in ["dinner", "lunch", "coffee", "gym", "workout", "meeting", "call", "flight", "trip"]:
+                if keyword in title:
+                    event_types[keyword] = event_types.get(keyword, 0) + 1
+
+        if event_types:
+            lines.append("**What they've been up to (last 30 days):**")
+            for etype, count in sorted(event_types.items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"- {etype}: {count} times")
+
+        top_locations = sorted(location_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        if top_locations:
+            lines.append("\n**Frequent places:**")
+            for loc, count in top_locations:
+                lines.append(f"- {loc} ({count} visits)")
+
+    # Upcoming events
+    if future and "error" not in future[0]:
+        upcoming = [ev for ev in future[:10]]
+        if upcoming:
+            lines.append("\n**Coming up:**")
+            for ev in upcoming:
+                line = f"- {ev['summary']}"
+                if ev.get("location"):
+                    line += f" @ {ev['location']}"
+                if ev.get("start"):
+                    line += f" ({ev['start'][:10]})"
+                lines.append(line)
+
+    if lines:
+        summary = "\n".join(lines)
+        append_dossier_from_source(
+            member_name, "calendar", summary, subject="Calendar Overview (60 days)"
+        )
+
+    all_events = (past if past and "error" not in past[0] else []) + \
+                 (future if future and "error" not in future[0] else [])
+
+    log_event(
+        event_type="calendar_sync",
+        event_subtype="deep_sync",
+        summary=f"Deep synced calendar for {member_name} ({len(all_events)} events)",
+        payload={
+            "member_name": member_name,
+            "past_events": len(past) if past and "error" not in past[0] else 0,
+            "future_events": len(future) if future and "error" not in future[0] else 0,
+        },
+    )
+
+    return all_events
+
+
 def format_events_for_context(events: list[dict]) -> str:
     """Format calendar events as readable text for the gossip context."""
     if not events or (events and "error" in events[0]):

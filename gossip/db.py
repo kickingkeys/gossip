@@ -108,6 +108,15 @@ CREATE TABLE IF NOT EXISTS action_log (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- DM history
+CREATE TABLE IF NOT EXISTS dm_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    message_text TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'outbound',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Events (comprehensive logging for analysis)
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,6 +146,7 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
     _migrate_location_columns()
+    _migrate_dm_channel_column()
 
 
 @contextmanager
@@ -296,6 +306,15 @@ def _migrate_location_columns() -> None:
                 conn.execute(f"ALTER TABLE members ADD COLUMN {col_name} {col_type}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+
+def _migrate_dm_channel_column() -> None:
+    """Add discord_dm_channel_id column to members table if it doesn't exist."""
+    with get_connection() as conn:
+        try:
+            conn.execute("ALTER TABLE members ADD COLUMN discord_dm_channel_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
 
 def update_member_location(
@@ -522,5 +541,38 @@ def get_events_by_session(session_id: str) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM events WHERE session_id = ? ORDER BY created_at ASC",
             (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── DM History ─────────────────────────────────────────────────────────
+
+
+def log_dm(member_id: str, message_text: str, direction: str = "outbound") -> int:
+    """Log a DM sent to or received from a member. Returns the dm_history row ID."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO dm_history (member_id, message_text, direction, created_at) VALUES (?, ?, ?, ?)",
+            (member_id, message_text, direction, _now()),
+        )
+        return cursor.lastrowid
+
+
+def get_last_dm(member_id: str) -> dict | None:
+    """Get the most recent DM for a member (any direction)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM dm_history WHERE member_id = ? ORDER BY created_at DESC LIMIT 1",
+            (member_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_dm_history(member_id: str, limit: int = 20) -> list[dict]:
+    """Get DM history for a member, most recent first."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM dm_history WHERE member_id = ? ORDER BY created_at DESC LIMIT ?",
+            (member_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]

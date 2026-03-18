@@ -15,12 +15,21 @@
 - [x] Cloudflare tunnel for public access
 - [x] Portal + bot fully working on Discord
 - [x] Clean member data for fresh start
+- [x] Detective/breadcrumb refactor — stripped to 13 tools, 4 slash commands, agent-first model
+- [x] DM infrastructure — dm_history table, DM check-in tools, 6h cron job
+- [x] DM continuity — inbound DMs logged to dm_history, DM conversation history in context
+- [x] Deep onboarding sync — 30 days email + 60 days calendar pulled on first OAuth connect
+- [x] Auto-onboarding outreach — gossip_discover_members tool + 12h cron scans server, DMs new people
+- [x] Removed redundant tools (gossip_list_members, gossip_get_member, gossip_member_locations, gossip_read_dynamics)
+- [x] Removed 8 slash commands, kept 4 (/onboard, /reset, /stop, /sethome)
+- [x] Removed browser-vision location cron (location-check-01)
+- [x] SKILL.md rewritten as behavioral guide (natural tone, not spy/detective)
+- [x] SOUL.md updated with natural friend personality (not "The Provocateur")
+- [x] Investigation Notes + Recent DM Conversations sections in gossip context
 
 ## Come Back To Later
 - [ ] **Permanent hosting** — Deploy to Fly.io/Railway for 24/7 uptime without laptop open. Eliminates rotating tunnel URLs.
-- [ ] **Location tracking activation** — Members share Google Maps location with gossip.bot.tea@gmail.com, install agent-browser, enable location-check-01 cron job
-- [ ] **DM gossip drops** — Cron job that sends personalized gossip DMs to each member using send_message
-- [ ] **Slash command cleanup** — Hermes registers 22 Discord commands, most are irrelevant. Cosmetic only.
+- [ ] **Location tracking activation** — Members share Google Maps location with gossip.bot.tea@gmail.com, install agent-browser, re-add location cron job
 - [ ] **Progressive tool discovery** — Send fewer tool schemas upfront, discover on demand. Low priority since platform_toolsets already cut tokens significantly.
 - [ ] **Google OAuth app — add domain** — When on permanent hosting, add the fixed URL to OAuth redirect URIs so it never needs updating
 

@@ -140,3 +140,71 @@ def sync_member_gmail(member_id: str, member_name: str) -> list[dict]:
         )
 
     return emails
+
+
+def deep_sync_member_gmail(member_id: str, member_name: str) -> list[dict]:
+    """One-time deep sync: pull 30 days of email history to bootstrap a dossier."""
+    from gossip.logger import log_event
+
+    token_data = get_oauth_token(member_id, "google")
+    if not token_data:
+        return []
+
+    scopes = token_data.get("scopes", "")
+    if "gmail" not in scopes:
+        return []
+
+    from google.oauth2.credentials import Credentials
+
+    creds = Credentials(
+        token=token_data["access_token"],
+        refresh_token=token_data.get("refresh_token"),
+        client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID"),
+        client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+        token_uri="https://oauth2.googleapis.com/token",
+    )
+
+    emails = fetch_recent_emails(creds, max_results=50, query="newer_than:30d")
+
+    if emails and "error" not in emails[0]:
+        # Group by sender frequency
+        sender_counts: dict[str, int] = {}
+        subjects: list[str] = []
+        for em in emails:
+            sender = em["from"].split("<")[0].strip().strip('"')
+            sender_counts[sender] = sender_counts.get(sender, 0) + 1
+            subjects.append(em["subject"])
+
+        lines = []
+
+        # Top contacts
+        top_senders = sorted(sender_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        if top_senders:
+            lines.append("**Frequent contacts (last 30 days):**")
+            for sender, count in top_senders:
+                lines.append(f"- {sender} ({count} emails)")
+
+        # Recent subject lines (last 10)
+        if subjects:
+            lines.append("\n**Recent email subjects:**")
+            for subj in subjects[:10]:
+                lines.append(f"- {subj}")
+
+        if lines:
+            summary = "\n".join(lines)
+            append_dossier_from_source(
+                member_name, "email", summary, subject="Email Overview (30 days)"
+            )
+
+        log_event(
+            event_type="gmail_sync",
+            event_subtype="deep_sync",
+            summary=f"Deep synced {len(emails)} emails for {member_name}",
+            payload={
+                "member_name": member_name,
+                "emails_found": len(emails),
+                "unique_senders": len(sender_counts),
+            },
+        )
+
+    return emails

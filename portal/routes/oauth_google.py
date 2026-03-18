@@ -122,4 +122,18 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
         scopes=",".join(credentials.scopes) if credentials.scopes else None,
     )
 
+    # Trigger deep sync in background to bootstrap dossier
+    import threading
+
+    def _deep_sync():
+        try:
+            from gossip.sources.calendar import deep_sync_member_calendar
+            from gossip.sources.gmail import deep_sync_member_gmail
+            deep_sync_member_calendar(member["id"], member["display_name"])
+            deep_sync_member_gmail(member["id"], member["display_name"])
+        except Exception as e:
+            print(f"[OAuth] Deep sync failed for {member['display_name']}: {e}", flush=True)
+
+    threading.Thread(target=_deep_sync, daemon=True).start()
+
     return RedirectResponse(url=f"/me/{portal_token}?success=google", status_code=303)
