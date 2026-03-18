@@ -1,0 +1,6 @@
+{
+  "name": "gossip",
+  "version": "1.0.0",
+  "description": "Gossip bot tools — bridge to Python data layer",
+  "capabilities": ["tools"]
+}

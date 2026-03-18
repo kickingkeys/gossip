@@ -35,6 +35,7 @@ class GossipConfig:
     history_context_limit: int = 20
     chat_history_days: int = 2
     dossier_max_chars: int = 500
+    timezone: str = "America/Los_Angeles"
 
 
 @dataclass
@@ -43,6 +44,7 @@ class DataConfig:
     dossiers_dir: str = "data/dossiers"
     chat_dir: str = "data/chat"
     group_dynamics: str = "data/group.md"
+    summaries_dir: str = "data/summaries"
 
 
 @dataclass
@@ -104,6 +106,10 @@ class Config:
     @property
     def group_dynamics_path(self) -> Path:
         return self.resolve_path(self.data.group_dynamics)
+
+    @property
+    def summaries_dir(self) -> Path:
+        return self.resolve_path(self.data.summaries_dir)
 
 
 _config: Config | None = None

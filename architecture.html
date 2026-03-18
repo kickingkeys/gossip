@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gossip Bot — Architecture v2.1</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    background: #0a0a0f;
+    color: #e0e0e8;
+    padding: 40px 20px;
+    line-height: 1.6;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  h1 { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; letter-spacing: -0.5px; }
+  .subtitle { color: #888; font-size: 14px; margin-bottom: 48px; }
+
+  .tabs {
+    display: flex; gap: 4px; margin-bottom: 32px;
+    border-bottom: 1px solid #1e1e2e; padding-bottom: 0;
+    flex-wrap: wrap;
+  }
+  .tab {
+    padding: 10px 20px; background: transparent; border: none; color: #666;
+    font-family: inherit; font-size: 13px; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+  }
+  .tab:hover { color: #aaa; }
+  .tab.active { color: #f0c040; border-bottom-color: #f0c040; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .diagram {
+    background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px;
+    padding: 40px; margin-bottom: 32px; position: relative; overflow-x: auto;
+  }
+  .diagram-title { font-size: 16px; font-weight: 600; color: #f0c040; margin-bottom: 24px; }
+
+  .node { border-radius: 10px; padding: 16px 20px; position: relative; text-align: center; }
+  .node-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 4px; }
+  .node-desc { font-size: 11px; color: #999; line-height: 1.4; }
+
+  .node-primary { background: #1a1a2e; border: 2px solid #f0c040; color: #f0c040; }
+  .node-primary .node-desc { color: #d4a830; }
+  .node-secondary { background: #1a1a2e; border: 2px solid #6c63ff; color: #8b83ff; }
+  .node-secondary .node-desc { color: #7a73dd; }
+  .node-data { background: #1a1a2e; border: 2px solid #3ecf8e; color: #3ecf8e; }
+  .node-data .node-desc { color: #30a872; }
+  .node-external { background: #1a1a2e; border: 2px solid #e05252; color: #e05252; }
+  .node-external .node-desc { color: #c04444; }
+  .node-portal { background: #1a1a2e; border: 2px solid #5bc0de; color: #5bc0de; }
+  .node-portal .node-desc { color: #4aa3c0; }
+
+  .overview-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  .overview-layer { display: flex; gap: 16px; align-items: stretch; }
+  .overview-layer .node { flex: 1; min-width: 0; }
+  .layer-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: #555; margin-bottom: 8px; padding-left: 4px; }
+
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 24px; }
+  @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+  .detail-card { background: #15151f; border: 1px solid #1e1e2e; border-radius: 10px; padding: 20px; }
+  .detail-card h3 { font-size: 13px; font-weight: 600; color: #f0c040; margin-bottom: 12px; }
+  .detail-card ul { list-style: none; padding: 0; }
+  .detail-card li { font-size: 12px; color: #aaa; padding: 4px 0; padding-left: 16px; position: relative; }
+  .detail-card li::before { content: '>'; position: absolute; left: 0; color: #555; }
+  .detail-card li strong { color: #ddd; }
+
+  .sequence { display: flex; flex-direction: column; gap: 0; }
+  .seq-step { display: flex; align-items: stretch; min-height: 44px; }
+  .seq-num { width: 32px; min-width: 32px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #f0c040; position: relative; }
+  .seq-num::after { content: ''; position: absolute; bottom: 0; left: 50%; width: 1px; height: 100%; background: #2a2a3a; z-index: 0; }
+  .seq-num span { position: relative; z-index: 1; background: #12121a; padding: 2px 0; }
+  .seq-bar { flex: 1; background: #1a1a28; border-left: 3px solid #2a2a3a; padding: 8px 16px; font-size: 12px; color: #bbb; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .seq-bar .seq-actor { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .actor-discord { background: #5865f215; color: #5865f2; border: 1px solid #5865f230; }
+  .actor-gateway { background: #f0c04015; color: #f0c040; border: 1px solid #f0c04030; }
+  .actor-donny { background: #f0c04015; color: #f0c040; border: 1px solid #f0c04030; }
+  .actor-synth { background: #6c63ff15; color: #8b83ff; border: 1px solid #6c63ff30; }
+  .actor-data { background: #3ecf8e15; color: #3ecf8e; border: 1px solid #3ecf8e30; }
+  .actor-portal { background: #5bc0de15; color: #5bc0de; border: 1px solid #5bc0de30; }
+  .actor-api { background: #e0525215; color: #e05252; border: 1px solid #e0525230; }
+  .actor-filter { background: #ff990015; color: #ff9900; border: 1px solid #ff990030; }
+
+  .cascade { display: flex; flex-direction: column; gap: 2px; max-width: 500px; margin: 0 auto; }
+  .cascade-step { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 8px; font-size: 12px; }
+  .cascade-num { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .cascade-step.c1 { background: #f0c04015; }
+  .cascade-step.c1 .cascade-num { background: #f0c040; color: #0a0a0f; }
+  .cascade-step.c2 { background: #6c63ff15; }
+  .cascade-step.c2 .cascade-num { background: #6c63ff; color: #fff; }
+  .cascade-step.c3 { background: #3ecf8e15; }
+  .cascade-step.c3 .cascade-num { background: #3ecf8e; color: #0a0a0f; }
+  .cascade-step.c4 { background: #5bc0de15; }
+  .cascade-step.c4 .cascade-num { background: #5bc0de; color: #0a0a0f; }
+  .cascade-arrow { text-align: center; color: #333; font-size: 14px; padding: 2px 0; }
+
+  .cost-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px; }
+  .cost-table th { text-align: left; padding: 8px 12px; color: #888; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #1e1e2e; }
+  .cost-table td { padding: 8px 12px; border-bottom: 1px solid #15151f; color: #bbb; }
+  .cost-table tr:last-child td { border-bottom: none; font-weight: 600; color: #f0c040; }
+
+  .file-tree { font-size: 12px; line-height: 1.8; color: #888; }
+  .file-tree .dir { color: #6c63ff; }
+  .file-tree .new { color: #3ecf8e; }
+  .file-tree .cut { color: #e05252; text-decoration: line-through; }
+  .file-tree .keep { color: #aaa; }
+  .file-tree .modify { color: #f0c040; }
+  .file-tree .indent { padding-left: 20px; }
+  .file-tree .indent2 { padding-left: 40px; }
+  .file-tree .indent3 { padding-left: 60px; }
+
+  .legend { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid #1e1e2e; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #888; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  .callout { background: #f0c04008; border: 1px solid #f0c04025; border-radius: 8px; padding: 16px 20px; margin: 20px 0; font-size: 12px; color: #d4a830; line-height: 1.6; }
+  .callout strong { color: #f0c040; }
+
+  .callout-warn { background: #e0525208; border: 1px solid #e0525225; border-radius: 8px; padding: 16px 20px; margin: 20px 0; font-size: 12px; color: #e07070; line-height: 1.6; }
+  .callout-warn strong { color: #e05252; }
+
+  .callout-fix { background: #3ecf8e08; border: 1px solid #3ecf8e25; border-radius: 8px; padding: 16px 20px; margin: 20px 0; font-size: 12px; color: #60d0a0; line-height: 1.6; }
+  .callout-fix strong { color: #3ecf8e; }
+
+  .summary-preview { background: #0d0d14; border: 1px solid #1e1e2e; border-radius: 8px; padding: 16px; font-size: 12px; line-height: 1.7; color: #888; margin: 12px 0; }
+  .summary-preview .key { color: #f0c040; font-weight: 600; }
+  .summary-preview .val { color: #aaa; }
+  .summary-preview .new-key { color: #3ecf8e; font-weight: 600; }
+
+  .metrics { display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0; }
+  .metric { background: #15151f; border: 1px solid #1e1e2e; border-radius: 10px; padding: 16px 24px; text-align: center; flex: 1; min-width: 140px; }
+  .metric-num { font-size: 28px; font-weight: 700; color: #f0c040; line-height: 1; }
+  .metric-label { font-size: 11px; color: #666; margin-top: 6px; }
+  .metric-sub { font-size: 10px; color: #444; margin-top: 2px; }
+
+  .context-stack { display: flex; flex-direction: column; gap: 2px; max-width: 600px; margin: 16px auto; }
+  .ctx-block { display: flex; align-items: center; padding: 8px 16px; border-radius: 6px; font-size: 12px; gap: 12px; }
+  .ctx-size { font-size: 10px; font-weight: 600; color: #888; min-width: 60px; text-align: right; }
+  .ctx-name { color: #ccc; flex: 1; }
+  .ctx-note { font-size: 10px; color: #555; }
+  .ctx-cached { background: #3ecf8e10; border-left: 3px solid #3ecf8e; }
+  .ctx-dynamic { background: #6c63ff10; border-left: 3px solid #6c63ff; }
+  .ctx-memory { background: #f0c04010; border-left: 3px solid #f0c040; }
+  .ctx-removed { background: #e0525210; border-left: 3px solid #e05252; opacity: 0.5; text-decoration: line-through; }
+
+  .arrow-down { color: #444; font-size: 20px; line-height: 1; }
+
+  /* Edge case table */
+  .edge-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px; }
+  .edge-table th { text-align: left; padding: 10px 12px; color: #888; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #1e1e2e; }
+  .edge-table td { padding: 10px 12px; border-bottom: 1px solid #15151f; color: #bbb; vertical-align: top; }
+  .edge-table .sev-crit { color: #e05252; font-weight: 600; }
+  .edge-table .sev-sig { color: #ff9900; font-weight: 600; }
+  .edge-table .sev-mod { color: #f0c040; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .badge-fixed { background: #3ecf8e20; color: #3ecf8e; border: 1px solid #3ecf8e30; }
+  .badge-watch { background: #ff990020; color: #ff9900; border: 1px solid #ff990030; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>gossip bot / architecture v2.1</h1>
+<p class="subtitle">one donny, per-user DM sessions, background synthesizers, SQLite memory, email pre-filter &mdash; openclaw + skills</p>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('overview')">System Overview</button>
+  <button class="tab" onclick="switchTab('flows')">Message Flows</button>
+  <button class="tab" onclick="switchTab('context')">Context Assembly</button>
+  <button class="tab" onclick="switchTab('identity')">Name Resolution</button>
+  <button class="tab" onclick="switchTab('onboarding')">Onboarding</button>
+  <button class="tab" onclick="switchTab('files')">File Structure</button>
+  <button class="tab" onclick="switchTab('cost')">Cost Model</button>
+  <button class="tab" onclick="switchTab('safeguards')">Safeguards</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: SYSTEM OVERVIEW                                       -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-overview" class="tab-content active">
+  <div class="diagram">
+    <div class="diagram-title">System Architecture</div>
+    <div class="overview-grid">
+
+      <div>
+        <div class="layer-label">External</div>
+        <div class="overview-layer">
+          <div class="node node-external">
+            <div class="node-label">Discord Server</div>
+            <div class="node-desc">group chat + DMs<br>messages, @mentions, "donny"</div>
+          </div>
+          <div class="node node-external">
+            <div class="node-label">Google APIs</div>
+            <div class="node-desc">Calendar (read-only)<br>Gmail (read-only, pre-filtered)</div>
+          </div>
+          <div class="node node-external">
+            <div class="node-label">Claude API</div>
+            <div class="node-desc">Sonnet (Donny responses)<br>Haiku (data synthesis)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down" style="text-align:center;">&#8595; &#8595; &#8595;</div>
+
+      <div>
+        <div class="layer-label">Runtime</div>
+        <div class="overview-layer">
+          <div class="node node-primary" style="flex: 2;">
+            <div class="node-label">OpenClaw Gateway</div>
+            <div class="node-desc">always-on &bull; routes messages &bull; manages sessions &bull; Discord adapter &bull; cron scheduler &bull; <strong>per-user DM sessions</strong> (isolated)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down" style="text-align:center;">&#8595;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8595;</div>
+
+      <div>
+        <div class="layer-label">Sessions</div>
+        <div class="overview-layer">
+          <div class="node node-primary" style="flex: 1;">
+            <div class="node-label">Group Session</div>
+            <div class="node-desc">Donny in #welcome<br>@mentions, idle drops</div>
+          </div>
+          <div class="node node-primary" style="flex: 1; border-style: dashed;">
+            <div class="node-label">DM Session (per user)</div>
+            <div class="node-desc">Donny &harr; one member<br>isolated context, no cross-leak</div>
+          </div>
+          <div class="node node-secondary" style="flex: 1;">
+            <div class="node-label">Synthesizer Sessions</div>
+            <div class="node-desc">Haiku &times; N, isolated cron<br>no personality, data only</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down" style="text-align:center;">&#8595;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8595;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8595;</div>
+
+      <div>
+        <div class="layer-label">Shared Data Layer (all sessions read/write here)</div>
+        <div class="overview-layer">
+          <div class="node node-data">
+            <div class="node-label">SQLite DB (WAL)</div>
+            <div class="node-desc">members, oauth_tokens,<br>gossip_history, dm_history,<br>chat_activity, <strong>donny_memory</strong>,<br>discovery_log</div>
+          </div>
+          <div class="node node-data">
+            <div class="node-label">Markdown Files</div>
+            <div class="node-desc">data/chat/*.md (daily logs)<br>data/summaries/*.md (per member)</div>
+          </div>
+          <div class="node node-portal">
+            <div class="node-label">Portal (FastAPI)</div>
+            <div class="node-desc">onboarding &bull; OAuth<br>shares SQLite DB</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="callout">
+      <strong>Key insight:</strong> Donny is ONE personality with ONE SOUL.md, but runs in <strong>isolated sessions per channel</strong>.
+      Group chat = one session. Each member's DMs = separate session. No private DM content from person A is visible when
+      responding to person B. Consistency comes from shared data (donny_memory table + summaries), not shared sessions.
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#f0c040;"></div> Donny sessions (user-facing)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#6c63ff;"></div> Synthesizers (background)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3ecf8e;"></div> Shared data</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e05252;"></div> External services</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#5bc0de;"></div> Onboarding portal</div>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div class="detail-card">
+      <h3>Session Model (Privacy Fix)</h3>
+      <ul>
+        <li><strong>Group session:</strong> one long-running session for #welcome channel</li>
+        <li><strong>DM sessions:</strong> one per member, <strong>fully isolated</strong></li>
+        <li>DM session context loaded from DB at start: summary + DM history + chat + donny_memory</li>
+        <li>Person A's DM content is <strong>never visible</strong> when Donny responds to Person B</li>
+        <li>Proactive DMs sent via <strong>cron session</strong>, reply arrives in the member's DM session</li>
+        <li>Handoff works because <strong>dm_history</strong> + <strong>donny_memory</strong> are in shared DB</li>
+      </ul>
+    </div>
+    <div class="detail-card">
+      <h3>Proactive Outreach (Cron, not Heartbeat)</h3>
+      <ul>
+        <li>Runs as <strong>cron job every 30 min</strong> in isolated session (NOT heartbeat)</li>
+        <li><strong>Code-level pre-check</strong> runs BEFORE any LLM call:</li>
+        <li>&nbsp;&nbsp;1. Quiet hours? &rarr; skip entirely, $0</li>
+        <li>&nbsp;&nbsp;2. Anyone active since last check? &rarr; no &rarr; skip, $0</li>
+        <li>&nbsp;&nbsp;3. Anyone quiet 4h+? &rarr; no, chat not idle 3h+? &rarr; skip, $0</li>
+        <li>&nbsp;&nbsp;4. Only if pre-check passes &rarr; call Sonnet to compose message</li>
+        <li>Result: <strong>~80% of checks cost $0</strong> (just DB queries)</li>
+        <li>Rate limit: max <strong>2-3 proactive DMs per person per day</strong></li>
+      </ul>
+    </div>
+    <div class="detail-card">
+      <h3>Donny's Memory (SQLite Table)</h3>
+      <ul>
+        <li>Stored in <strong>donny_memory table</strong> in SQLite (NOT a markdown file)</li>
+        <li>Schema: <strong>(id, timestamp, channel_type, target, content)</strong></li>
+        <li>channel_type: "group" | "dm/{member_name}" | "proactive/{member_name}"</li>
+        <li>Read: SELECT last 30 rows ORDER BY timestamp DESC</li>
+        <li>Write: INSERT after every response</li>
+        <li>Trim: DELETE WHERE timestamp &lt; now - 48h (on every write)</li>
+        <li><strong>Concurrent-safe</strong> &mdash; SQLite WAL handles simultaneous reads/writes</li>
+        <li>No file corruption risk from parallel sessions</li>
+      </ul>
+    </div>
+    <div class="detail-card">
+      <h3>Member Summary Structure</h3>
+      <div class="summary-preview">
+        <span class="key">## surya</span><br>
+        <span class="key">This Week:</span> <span class="val">3 meetings, dinner res friday, gym tue/thu</span><br>
+        <span class="key">Patterns:</span> <span class="val">regular gym schedule, quiet on weekends</span><br>
+        <span class="key">Relationships:</span> <span class="val">talks with michael a lot, less with ryan lately</span><br>
+        <span class="key">Recent:</span> <span class="val">stressed about work, excited about weekend plans</span><br>
+        <span class="key">Flagged:</span> <span class="val">said "staying in" weekend but has dinner res friday</span><br>
+        <span class="new-key">Donny Notes:</span> <span class="val">running joke about gym obsession, responds well to teasing about food</span><br>
+        <span class="key">Updated:</span> <span class="val">2026-03-18T10:00:00Z</span>
+      </div>
+      <ul>
+        <li>300-700 chars per member</li>
+        <li><strong>Donny Notes</strong> = relationship-level memory that persists beyond 48h trim</li>
+        <li>Synthesizer carries forward Donny Notes from previous summary</li>
+        <li>Running jokes, communication style, things to avoid &mdash; all live here</li>
+        <li>Calendar/email data synthesized via <strong>code-level email pre-filter</strong></li>
+        <li><strong>No DM content</strong> fed to synthesizer &mdash; DM context stays in DM sessions only</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: MESSAGE FLOWS                                         -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-flows" class="tab-content">
+
+  <div class="diagram">
+    <div class="diagram-title">Flow 1: Group Chat Response (@mention / "donny" keyword)</div>
+    <div class="sequence">
+      <div class="seq-step">
+        <div class="seq-num"><span>1</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-discord">Discord</span>
+          Message arrives in #welcome channel
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>2</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-gateway">Gateway</span>
+          Log message to data/chat/YYYY-MM-DD.md &bull; update chat_activity in DB &bull; identity resolution (4-layer cascade)
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>3</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-gateway">Gateway</span>
+          Check trigger: contains @donny or "donny"? &rarr; route to <strong>group session</strong>
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>4</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          Single tool call: <strong>gossip_context(type="group")</strong> &rarr; returns all summaries + last 60 msgs + donny_memory + gossip history
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>5</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          Generate response (Sonnet) &rarr; 1-2 sentences, one line
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>6</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-data">Data</span>
+          INSERT donny_memory (channel: "group") &bull; INSERT gossip_history if idle drop
+        </div>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>Single tool call, not four.</strong> gossip_context(type="group") returns everything Donny needs in one response.
+      One LLM turn for context loading + one for generation = fast reply. SOUL.md + skill are in the system prompt (cached).
+    </div>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Flow 2: DM Conversation (someone DMs Donny)</div>
+    <div class="sequence">
+      <div class="seq-step">
+        <div class="seq-num"><span>1</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-discord">Discord</span>
+          DM arrives from a member
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>2</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-gateway">Gateway</span>
+          Identity resolution &bull; INSERT dm_history (direction: inbound) &bull; route to <strong>per-user DM session</strong>
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>3</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          Single tool call: <strong>gossip_context(type="dm", member="surya")</strong> &rarr; their summary + DM history + last 20 chat msgs + condensed others + donny_memory
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>4</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          Generate response (Sonnet) &rarr; natural, warm, friend tone
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>5</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-data">Data</span>
+          INSERT donny_memory (channel: "dm/surya") &bull; INSERT dm_history (direction: outbound)
+        </div>
+      </div>
+    </div>
+    <div class="callout-fix">
+      <strong>Privacy fix:</strong> Each member has their own DM session. Person A's DM content is NEVER in context when Donny
+      responds to Person B. Donny knows what it said to everyone (via donny_memory table), but not what others said privately.
+      Chat context (last 20 msgs) lets Donny reference group activity: "lol did you see what ryan said earlier."
+    </div>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Flow 3: Proactive Outreach (Cron, every 30 min)</div>
+    <div class="sequence">
+      <div class="seq-step">
+        <div class="seq-num"><span>1</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-gateway">Cron</span>
+          Proactive check cron fires (isolated session)
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>2</span></div>
+        <div class="seq-bar" style="border-left-color: #3ecf8e;">
+          <span class="seq-actor actor-filter">Pre-Check</span>
+          <strong>Code-level gate (no LLM):</strong> quiet hours? &rarr; skip. Nobody quiet 4h+? &rarr; skip. Chat not idle 3h+? &rarr; skip. No new data? &rarr; skip.
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>3</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-filter">Pre-Check</span>
+          Check proactive DM counts today per member (from donny_memory table): anyone at limit (3/day)? &rarr; remove from candidates
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>4</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          <strong>Only if pre-check passes:</strong> gossip_context(type="proactive") &rarr; all summaries + donny_memory + chat activity
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>5a</span></div>
+        <div class="seq-bar" style="border-left-color: #f0c040;">
+          <span class="seq-actor actor-donny">Donny</span>
+          <strong>If someone needs a DM:</strong> compose message &rarr; send_dm tool &rarr; INSERT dm_history (outbound) + INSERT donny_memory
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>5b</span></div>
+        <div class="seq-bar" style="border-left-color: #6c63ff;">
+          <span class="seq-actor actor-donny">Donny</span>
+          <strong>If chat idle 3h+:</strong> compose idle drop &rarr; send to group &rarr; INSERT gossip_history + INSERT donny_memory
+        </div>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>Cost savings:</strong> ~80% of cron runs hit the pre-check gate and stop without calling the LLM.
+      Quiet hours (11pm-9am) = 0 LLM calls. Calm evenings where nobody's quiet for 4h = 0 LLM calls.
+      Only interesting state changes trigger Sonnet.
+    </div>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Flow 4: Background Synthesis (Cron, every 2h per member, staggered)</div>
+    <div class="sequence">
+      <div class="seq-step">
+        <div class="seq-num"><span>1</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-gateway">Cron</span>
+          Isolated session spins up for member X
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>2</span></div>
+        <div class="seq-bar" style="border-left-color: #ff9900;">
+          <span class="seq-actor actor-filter">Email Filter</span>
+          <strong>Code-level pre-filter:</strong> fetch emails &rarr; drop medical, financial, legal, romantic (domain + subject pattern matching) &rarr; pass only social/travel/event emails
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>3</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-api">Google</span>
+          Fetch calendar events (7d ahead + 7d back) &bull; use pre-filtered email snippets
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>4</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-data">Data</span>
+          Read: chat log mentions of member X (48h) + previous summary (for continuity + Donny Notes carry-forward)
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>5</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-synth">Haiku</span>
+          Synthesize structured summary: This Week, Patterns, Relationships, Recent, Flagged, Donny Notes
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>6</span></div>
+        <div class="seq-bar" style="border-left-color: #3ecf8e;">
+          <span class="seq-actor actor-filter">Validate</span>
+          Check output has all required sections &bull; if malformed, retry once with stricter prompt &bull; if still bad, keep previous summary
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>7</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-data">Data</span>
+          Write to data/summaries/{member}.md &bull; update sync_state in DB
+        </div>
+      </div>
+    </div>
+    <div class="callout-warn">
+      <strong>Privacy safeguards:</strong> (1) Email pre-filter runs in <strong>code</strong>, not LLM &mdash; medical/financial/legal emails
+      never reach Haiku. (2) <strong>No DM history</strong> fed to synthesizer &mdash; DM content stays in DM sessions only, loaded from
+      dm_history table. (3) Validation ensures summary format is consistent for main agent to parse.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: CONTEXT ASSEMBLY                                      -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-context" class="tab-content">
+  <div class="diagram">
+    <div class="diagram-title">Context: Group Chat Response</div>
+    <p style="font-size: 12px; color: #888; margin-bottom: 16px;">Loaded via single tool call: gossip_context(type="group")</p>
+    <div class="context-stack">
+      <div class="ctx-block ctx-cached">
+        <div class="ctx-size">~1.5K</div>
+        <div class="ctx-name">SOUL.md (personality)</div>
+        <div class="ctx-note">CACHED &mdash; 90% read discount</div>
+      </div>
+      <div class="ctx-block ctx-cached">
+        <div class="ctx-size">~1.5K</div>
+        <div class="ctx-name">Donny Skill (behavior rules)</div>
+        <div class="ctx-note">CACHED &mdash; 90% read discount</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~3-5K</div>
+        <div class="ctx-name">All member summaries (5-10 members &times; 300-700 chars)</div>
+        <div class="ctx-note">dynamic &mdash; updated by synthesizers</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~3-5K</div>
+        <div class="ctx-name">Last 60 chat messages (parsed by timestamp pattern, not line count)</div>
+        <div class="ctx-note">dynamic &mdash; message-count window across day-file boundaries</div>
+      </div>
+      <div class="ctx-block ctx-memory">
+        <div class="ctx-size">~0.5-1K</div>
+        <div class="ctx-name">Donny's memory (last 30 rows from donny_memory table)</div>
+        <div class="ctx-note">what Donny said to whom &mdash; prevents contradictions</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~0.5K</div>
+        <div class="ctx-name">Gossip history (last 15 drops)</div>
+        <div class="ctx-note">don't repeat yourself</div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-num">~10-13K</div>
+        <div class="metric-label">total input tokens</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">~7-10K</div>
+        <div class="metric-label">effective (after caching)</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">1 tool call</div>
+        <div class="metric-label">context loading</div>
+        <div class="metric-sub">not 4 separate calls</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Context: DM Response (Per-User Isolated Session)</div>
+    <p style="font-size: 12px; color: #888; margin-bottom: 16px;">Loaded via: gossip_context(type="dm", member="surya"). Runs in surya's DM session &mdash; no other member's DMs visible.</p>
+    <div class="context-stack">
+      <div class="ctx-block ctx-cached">
+        <div class="ctx-size">~1.5K</div>
+        <div class="ctx-name">SOUL.md (personality)</div>
+        <div class="ctx-note">CACHED</div>
+      </div>
+      <div class="ctx-block ctx-cached">
+        <div class="ctx-size">~1.5K</div>
+        <div class="ctx-name">Donny Skill (behavior rules)</div>
+        <div class="ctx-note">CACHED</div>
+      </div>
+      <div class="ctx-block ctx-dynamic" style="border-left-color: #f0c040;">
+        <div class="ctx-size">~0.5-1K</div>
+        <div class="ctx-name">THIS person's full summary (incl. Donny Notes)</div>
+        <div class="ctx-note">their calendar, patterns, flagged items, relationship dynamics</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~1-2K</div>
+        <div class="ctx-name">DM history with this person (last 15 msgs from dm_history table)</div>
+        <div class="ctx-note">continuity &mdash; loaded from DB, NOT from another session</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~1.5-2K</div>
+        <div class="ctx-name">Last 20 chat messages (group context)</div>
+        <div class="ctx-note">so Donny can reference the group chat</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~1-2K</div>
+        <div class="ctx-name">Condensed other summaries (one-liners, no private data)</div>
+        <div class="ctx-note">so Donny can mention other people naturally</div>
+      </div>
+      <div class="ctx-block ctx-memory">
+        <div class="ctx-size">~0.5-1K</div>
+        <div class="ctx-name">Donny's memory (last 30 rows from donny_memory table)</div>
+        <div class="ctx-note">what Donny told this person AND said in group (NOT what others said in DMs)</div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-num">~8-11K</div>
+        <div class="metric-label">total input tokens</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">~5-8K</div>
+        <div class="metric-label">effective (after caching)</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">0</div>
+        <div class="metric-label">other members' DMs visible</div>
+        <div class="metric-sub">session isolation</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Context: Synthesizer (Background, No DM Content)</div>
+    <p style="font-size: 12px; color: #888; margin-bottom: 16px;">What the synthesizer sees. Note: NO DM history, NO SOUL.md. Pure data processing.</p>
+    <div class="context-stack">
+      <div class="ctx-block ctx-cached">
+        <div class="ctx-size">~0.5K</div>
+        <div class="ctx-name">Synthesizer Skill (template + instructions)</div>
+        <div class="ctx-note">CACHED &mdash; no SOUL.md, no personality</div>
+      </div>
+      <div class="ctx-block ctx-dynamic" style="border-left-color: #e05252;">
+        <div class="ctx-size">~1-3K</div>
+        <div class="ctx-name">Calendar events (14 day window)</div>
+        <div class="ctx-note">raw API data</div>
+      </div>
+      <div class="ctx-block ctx-dynamic" style="border-left-color: #ff9900;">
+        <div class="ctx-size">~0.5-1.5K</div>
+        <div class="ctx-name">Pre-filtered email snippets (social/travel/events only)</div>
+        <div class="ctx-note">medical, financial, legal, romantic REMOVED in code before reaching Haiku</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~0.5-1K</div>
+        <div class="ctx-name">Chat mentions of this person (48h)</div>
+        <div class="ctx-note">grep'd from chat logs</div>
+      </div>
+      <div class="ctx-block ctx-removed">
+        <div class="ctx-size">~0K</div>
+        <div class="ctx-name">DM history &mdash; REMOVED from synthesizer context</div>
+        <div class="ctx-note">DM content stays in DM sessions only</div>
+      </div>
+      <div class="ctx-block ctx-dynamic">
+        <div class="ctx-size">~0.3-0.5K</div>
+        <div class="ctx-name">Previous summary (for continuity + Donny Notes carry-forward)</div>
+        <div class="ctx-note">ensures running jokes and relationship dynamics persist</div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-num">~3-7K</div>
+        <div class="metric-label">input tokens (Haiku)</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">~200-400</div>
+        <div class="metric-label">output tokens</div>
+        <div class="metric-sub">structured summary</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">~$0.02</div>
+        <div class="metric-label">per run</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Before (v1):</strong> build_gossip_context() dumps ALL data into ONE blob &rarr; <strong>20-27K tokens per reply</strong><br><br>
+    <strong>After (v2.1):</strong> Single tool call returns pre-assembled context. Synthesizers pre-digest raw data.
+    Email pre-filtered in code. No DM content in synthesizer. Memory in SQLite (concurrent-safe) &rarr; <strong>8-13K tokens per reply</strong>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: NAME RESOLUTION                                       -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-identity" class="tab-content">
+  <div class="diagram">
+    <div class="diagram-title">Identity Resolution &mdash; 4-Layer Cascade</div>
+    <p style="font-size: 12px; color: #888; margin-bottom: 24px;">All layers case-insensitive. First match wins. Always backfill discord_id on success.</p>
+
+    <div class="cascade">
+      <div class="cascade-step c1">
+        <div class="cascade-num">1</div>
+        <div>
+          <div style="color:#999;font-size:11px"><strong style="color:#ddd">discord_id</strong> (exact numeric match)</div>
+          <div style="color:#666;font-size:10px">Most reliable. Set on first message or backfilled from guild member list.</div>
+        </div>
+      </div>
+      <div class="cascade-arrow">&darr; miss</div>
+      <div class="cascade-step c2">
+        <div class="cascade-num">2</div>
+        <div>
+          <div style="color:#999;font-size:11px"><strong style="color:#ddd">discord_username</strong> (case-insensitive)</div>
+          <div style="color:#666;font-size:10px">What they entered during onboarding. Also checks global_name from Discord.</div>
+        </div>
+      </div>
+      <div class="cascade-arrow">&darr; miss</div>
+      <div class="cascade-step c3">
+        <div class="cascade-num">3</div>
+        <div>
+          <div style="color:#999;font-size:11px"><strong style="color:#ddd">nicknames</strong> (case-insensitive, comma-separated)</div>
+          <div style="color:#666;font-size:10px">NEW field. Checked against Discord username AND global_name. "surya, sk, kickingkeys"</div>
+        </div>
+      </div>
+      <div class="cascade-arrow">&darr; miss</div>
+      <div class="cascade-step c4">
+        <div class="cascade-num">4</div>
+        <div>
+          <div style="color:#999;font-size:11px"><strong style="color:#ddd">display_name</strong> (case-insensitive fuzzy)</div>
+          <div style="color:#666;font-size:10px">Last resort. Checks against Discord global_name and display_name.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top: 24px;">
+      <strong>Always backfill:</strong> If resolution succeeds at any layer and discord_id is still NULL, immediately UPDATE the
+      members table. Next time, layer 1 catches it. <strong>One function:</strong> resolve_member() handles all layers &mdash;
+      _find_member() merged and deleted.
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div class="detail-card">
+      <h3>Current Bugs (v1)</h3>
+      <ul>
+        <li><strong>Case-sensitive matching</strong> &mdash; "KickingKeys" vs "kickingkeys" fails</li>
+        <li><strong>No nicknames field</strong> &mdash; only username and display_name</li>
+        <li><strong>discord_id often NULL</strong> &mdash; portal onboarding doesn't capture it</li>
+        <li><strong>Two resolution functions</strong> &mdash; resolve_member() and _find_member() diverge</li>
+        <li><strong>No global_name check</strong> &mdash; Discord users have username AND global_name</li>
+        <li><strong>Silent failure</strong> &mdash; returns None, bot ignores the person entirely</li>
+      </ul>
+    </div>
+    <div class="detail-card">
+      <h3>Fixes (v2.1)</h3>
+      <ul>
+        <li>All string comparisons use <strong>LOWER()</strong> in SQL + .lower() in Python</li>
+        <li>Add <strong>nicknames TEXT</strong> column to members table</li>
+        <li>Add <strong>nicknames field</strong> to invite.html onboarding form</li>
+        <li><strong>Merge</strong> _find_member() into resolve_member()</li>
+        <li>Check Discord <strong>global_name</strong> at layers 2 and 4</li>
+        <li>Always <strong>backfill discord_id</strong> on first match</li>
+        <li>On None result: <strong>log warning</strong> with Discord user details for debugging</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: ONBOARDING                                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-onboarding" class="tab-content">
+
+  <div class="callout-warn">
+    <strong>Google OAuth "Testing" mode:</strong> If the OAuth app is not published/verified, refresh tokens expire after <strong>7 days</strong>.
+    Every member's Google connection silently dies after a week. <strong>Detection fix:</strong> when sync gets a 401, mark Google as disconnected
+    in sync_state, DM the member to reconnect. <strong>Long-term fix:</strong> publish the OAuth app (requires Google review, privacy policy, homepage).
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Onboarding Flow</div>
+    <div class="sequence">
+      <div class="seq-step">
+        <div class="seq-num"><span>1</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-synth">Cron 12h</span>
+          Scan Discord guild for new users &bull; check <strong>discovery_log</strong> table &mdash; skip anyone contacted in last 7 days
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>2</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          DMs new user: "hey i'm donny, i'm in the group chat. link your stuff here if you want: {invite_url}" &bull; INSERT discovery_log
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>3</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-portal">Portal</span>
+          User clicks &rarr; GET /join/{invite_token} &rarr; invite.html form
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>4</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-portal">Portal</span>
+          User enters: <strong>display_name</strong> + <strong>discord_username</strong> + <strong>nicknames</strong> (NEW: "What do people call you?")
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>5</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-portal">Portal</span>
+          POST /onboard &rarr; creates member in DB (with nicknames) &rarr; redirect to /connect/{portal_token}
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>6</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-portal">Portal</span>
+          connect_sources.html &rarr; "Connect Google" button (Calendar + <strong>Gmail scope enabled by default</strong>)
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>7</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-api">Google</span>
+          OAuth flow &rarr; tokens stored &bull; deep sync fires in background (30d cal + 30d email)
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>8</span></div>
+        <div class="seq-bar" style="border-left-color: #3ecf8e;">
+          <span class="seq-actor actor-synth">Immediate</span>
+          <strong>Cold start fix:</strong> after deep sync completes, trigger synthesizer run immediately &mdash; don't wait for 2h cron
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>9</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-data">Data</span>
+          First summary written to data/summaries/{name}.md within <strong>1-2 minutes</strong> of OAuth
+        </div>
+      </div>
+      <div class="seq-step">
+        <div class="seq-num"><span>10</span></div>
+        <div class="seq-bar">
+          <span class="seq-actor actor-donny">Donny</span>
+          Next proactive check: Donny sees new member with fresh summary &rarr; DMs them naturally
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div class="detail-card">
+      <h3>Invite Form Changes</h3>
+      <ul>
+        <li>Add <strong>nicknames</strong> field: "What do people call you?"</li>
+        <li>Placeholder: "e.g. surya, sk, kickingkeys"</li>
+        <li>Stored as comma-separated TEXT in members table</li>
+        <li>Remove spy language: "intel" &rarr; "some context", delete "gossip engine"</li>
+        <li>Gmail scope requested from start (GOOGLE_GMAIL_ENABLED=true)</li>
+      </ul>
+    </div>
+    <div class="detail-card">
+      <h3>Anti-Spam: Discovery Log</h3>
+      <ul>
+        <li>New table: <strong>discovery_log</strong> (discord_id, attempted_at, success)</li>
+        <li>Before DM-ing a new user, check: contacted in last 7 days? &rarr; skip</li>
+        <li>Max 1 DM per undiscovered user per 7 days</li>
+        <li>If they complete onboarding, mark success=true</li>
+        <li>Prevents: bot harassing someone who doesn't want to join</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: FILE STRUCTURE                                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-files" class="tab-content">
+  <div class="diagram">
+    <div class="diagram-title">Project Structure (v2.1)</div>
+    <div class="detail-grid">
+      <div>
+        <div class="file-tree">
+          <div><span class="dir">gossip/</span></div>
+          <div class="indent"><span class="dir">config/</span></div>
+          <div class="indent2"><span class="keep">SOUL.md</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div class="indent2"><span class="keep">config.yaml</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div class="indent2"><span class="modify">cron/jobs.json</span> <span style="color:#f0c040;font-size:10px">modify &mdash; add synthesizer + proactive crons</span></div>
+          <div class="indent2"><span class="keep">.env</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div>&nbsp;</div>
+          <div class="indent"><span class="dir">skills/</span></div>
+          <div class="indent2"><span class="modify">donny/SKILL.md</span> <span style="color:#f0c040;font-size:10px">rewrite &mdash; unified behavior</span></div>
+          <div class="indent2"><span class="new">synthesizer/SKILL.md</span> <span style="color:#3ecf8e;font-size:10px">NEW &mdash; data processing template</span></div>
+          <div>&nbsp;</div>
+          <div class="indent"><span class="dir">gossip/</span> <span style="color:#666;font-size:10px">core python (runtime-agnostic)</span></div>
+          <div class="indent2"><span class="modify">db.py</span> <span style="color:#f0c040;font-size:10px">add: nicknames col, donny_memory table, discovery_log table</span></div>
+          <div class="indent2"><span class="keep">config.py</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div class="indent2"><span class="modify">identity.py</span> <span style="color:#f0c040;font-size:10px">rewrite &mdash; 4-layer cascade, merge _find_member</span></div>
+          <div class="indent2"><span class="modify">engine.py</span> <span style="color:#f0c040;font-size:10px">rewrite &mdash; gossip_context(type, member) single-call assembly</span></div>
+          <div class="indent2"><span class="new">memory.py</span> <span style="color:#3ecf8e;font-size:10px">NEW &mdash; donny_memory CRUD (read/write/trim on SQLite table)</span></div>
+          <div class="indent2"><span class="new">synthesizer.py</span> <span style="color:#3ecf8e;font-size:10px">NEW &mdash; background data processor + validation</span></div>
+          <div class="indent2"><span class="new">email_filter.py</span> <span style="color:#3ecf8e;font-size:10px">NEW &mdash; code-level email sensitivity filter</span></div>
+          <div class="indent2"><span class="new">proactive.py</span> <span style="color:#3ecf8e;font-size:10px">NEW &mdash; code-level pre-check gate for outreach cron</span></div>
+          <div class="indent2"><span class="keep">logger.py</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div class="indent2"><span class="dir">sources/</span></div>
+          <div class="indent3"><span class="keep">calendar.py</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div class="indent3"><span class="keep">gmail.py</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="file-tree">
+          <div class="indent"><span class="dir">portal/</span> <span style="color:#666;font-size:10px">onboarding (FastAPI)</span></div>
+          <div class="indent2"><span class="keep">app.py</span> <span style="color:#3ecf8e;font-size:10px">keep</span></div>
+          <div class="indent2"><span class="modify">routes/oauth_google.py</span> <span style="color:#f0c040;font-size:10px">add immediate synth trigger after deep sync</span></div>
+          <div class="indent2"><span class="modify">routes/onboard.py</span> <span style="color:#f0c040;font-size:10px">accept nicknames param</span></div>
+          <div class="indent2"><span class="modify">templates/invite.html</span> <span style="color:#f0c040;font-size:10px">add nicknames field</span></div>
+          <div class="indent2"><span class="modify">templates/connect_sources.html</span> <span style="color:#f0c040;font-size:10px">remove spy language</span></div>
+          <div class="indent2"><span class="cut">routes/map_view.py</span> <span style="color:#e05252;font-size:10px">CUT</span></div>
+          <div class="indent2"><span class="cut">templates/map.html</span> <span style="color:#e05252;font-size:10px">CUT</span></div>
+          <div>&nbsp;</div>
+          <div class="indent"><span class="cut" style="text-decoration: line-through;">gossip_tools/</span> <span style="color:#e05252;font-size:10px">ENTIRE DIRECTORY REMOVED</span></div>
+          <div class="indent2"><span class="cut">idle_check.py</span> <span style="color:#e05252;font-size:10px">&rarr; proactive.py pre-check</span></div>
+          <div class="indent2"><span class="cut">context_builder.py</span> <span style="color:#e05252;font-size:10px">&rarr; engine.py gossip_context()</span></div>
+          <div class="indent2"><span class="cut">gossip_gen.py</span> <span style="color:#e05252;font-size:10px">&rarr; skill instruction</span></div>
+          <div class="indent2"><span class="cut">dossier_tools.py</span> <span style="color:#e05252;font-size:10px">&rarr; skill instruction</span></div>
+          <div class="indent2"><span class="cut">location_tools.py</span> <span style="color:#e05252;font-size:10px">CUT entirely</span></div>
+          <div class="indent2"><span class="cut">image_tools.py</span> <span style="color:#e05252;font-size:10px">CUT entirely</span></div>
+          <div class="indent2"><span class="cut">dynamics_tools.py</span> <span style="color:#e05252;font-size:10px">CUT entirely</span></div>
+          <div class="indent2"><span class="cut">intel_tools.py</span> <span style="color:#e05252;font-size:10px">&rarr; proactive.py</span></div>
+          <div class="indent2"><span class="cut">sync_tools.py</span> <span style="color:#e05252;font-size:10px">&rarr; synthesizer cron</span></div>
+          <div>&nbsp;</div>
+          <div class="indent"><span class="dir">data/</span> <span style="color:#666;font-size:10px">runtime (gitignored)</span></div>
+          <div class="indent2"><span class="keep">gossip.db</span> <span style="color:#3ecf8e;font-size:10px">+donny_memory table, +discovery_log table</span></div>
+          <div class="indent2"><span class="keep">chat/*.md</span></div>
+          <div class="indent2"><span class="new">summaries/*.md</span> <span style="color:#3ecf8e;font-size:10px">NEW</span></div>
+          <div class="indent2"><span class="keep">dossiers/*.md</span> <span style="color:#666;font-size:10px">legacy, phased out</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top: 24px;">
+      <strong>New files: 4</strong> (memory.py, synthesizer.py, email_filter.py, proactive.py).
+      <strong>Deleted: 9</strong> (entire gossip_tools/ directory).
+      <strong>Modified: 8</strong> (db.py, identity.py, engine.py, onboard.py, invite.html, connect_sources.html, oauth_google.py, cron/jobs.json).
+      donny_memory moved from file to SQLite table &mdash; concurrent-safe across all sessions.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: COST MODEL                                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-cost" class="tab-content">
+  <div class="diagram">
+    <div class="diagram-title">Daily Cost Estimate (10 members, active group)</div>
+
+    <table class="cost-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Model</th>
+          <th>Calls/Day</th>
+          <th>Input Tokens</th>
+          <th>Output Tokens</th>
+          <th>Daily Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Group chat responses</td>
+          <td>Sonnet</td>
+          <td>5-10</td>
+          <td>~7K eff. (after cache)</td>
+          <td>~150</td>
+          <td>$0.12-0.24</td>
+        </tr>
+        <tr>
+          <td>DM responses (inbound)</td>
+          <td>Sonnet</td>
+          <td>10-20</td>
+          <td>~5K eff. (after cache)</td>
+          <td>~200</td>
+          <td>$0.16-0.32</td>
+        </tr>
+        <tr>
+          <td>Proactive outreach (cron)</td>
+          <td>Sonnet</td>
+          <td>8-12</td>
+          <td>~5K eff. (after cache)</td>
+          <td>~150</td>
+          <td>$0.13-0.20</td>
+        </tr>
+        <tr>
+          <td>Proactive pre-checks (no LLM)</td>
+          <td>none</td>
+          <td>36-40</td>
+          <td>0 (DB queries only)</td>
+          <td>0</td>
+          <td>$0.00</td>
+        </tr>
+        <tr>
+          <td>Background synthesizers</td>
+          <td>Haiku</td>
+          <td>30-60</td>
+          <td>~4K (no caching)</td>
+          <td>~300</td>
+          <td>$0.07-0.13</td>
+        </tr>
+        <tr>
+          <td><strong>TOTAL</strong></td>
+          <td></td>
+          <td><strong>53-102 LLM / 36-40 free</strong></td>
+          <td></td>
+          <td></td>
+          <td><strong>$0.48-0.89</strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="metrics" style="margin-top: 32px;">
+      <div class="metric">
+        <div class="metric-num">~$0.65</div>
+        <div class="metric-label">avg daily cost</div>
+        <div class="metric-sub">10 members, active group</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">~$20</div>
+        <div class="metric-label">monthly cost</div>
+        <div class="metric-sub">down from $90-390/mo</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">~80%</div>
+        <div class="metric-label">proactive checks free</div>
+        <div class="metric-sub">code pre-check gate</div>
+      </div>
+      <div class="metric">
+        <div class="metric-num">0</div>
+        <div class="metric-label">emoji LLM calls</div>
+        <div class="metric-sub">removed entirely</div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>v1 cost:</strong> $3-13/day ($90-390/month). Monolithic context, Haiku emoji reactions per message, bloated tools.<br>
+      <strong>v2.1 cost:</strong> ~$0.65/day (~$20/month). Pre-check gate eliminates ~80% of proactive cron LLM calls.
+      Prompt caching on SOUL.md + skill. Synthesizers use Haiku. No emoji LLM calls.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- TAB: SAFEGUARDS                                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="tab-safeguards" class="tab-content">
+  <div class="diagram">
+    <div class="diagram-title">Edge Cases, Fixes &amp; Safeguards</div>
+    <p style="font-size: 12px; color: #888; margin-bottom: 24px;">Every identified failure mode and how the architecture addresses it.</p>
+
+    <table class="edge-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Issue</th>
+          <th>Severity</th>
+          <th>Fix in v2.1</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><strong>DM privacy leak</strong> &mdash; Person A's DMs visible when responding to Person B if sessions are shared</td>
+          <td class="sev-crit">Critical</td>
+          <td>Per-user DM sessions (isolated). Context loaded from shared DB (dm_history, donny_memory), never from another session's conversation history.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><strong>Heartbeat cost</strong> &mdash; Every 30min heartbeat calls Sonnet even when nothing to do ($1+/day wasted)</td>
+          <td class="sev-crit">Critical</td>
+          <td>Replaced heartbeat with cron + code-level pre-check gate. DB queries check quiet hours, activity timestamps, DM counts. LLM only called when pre-check passes (~20% of the time).</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><strong>OAuth testing mode</strong> &mdash; Google tokens expire after 7 days if app not published</td>
+          <td class="sev-crit">Critical</td>
+          <td>Detection: when sync gets 401, mark Google disconnected in sync_state, DM member to reconnect. Long-term: publish OAuth app.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td><strong>Cold start</strong> &mdash; New member has no summary for up to 2h after onboarding</td>
+          <td class="sev-crit">Critical</td>
+          <td>Trigger immediate synthesizer run after deep sync completes (in same background thread). Summary ready within 1-2 min of OAuth connect.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td><strong>Context latency</strong> &mdash; 3-4 tool calls to load context = 5-15s delay before reply</td>
+          <td class="sev-sig">Significant</td>
+          <td>Single tool call: gossip_context(type, member) returns everything pre-assembled. One LLM turn for loading instead of four.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td><strong>Memory file corruption</strong> &mdash; Simultaneous writes to donny_memory.md from parallel sessions</td>
+          <td class="sev-sig">Significant</td>
+          <td>Moved donny_memory to SQLite table. WAL mode handles concurrent reads/writes safely. No file-level race conditions.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>8</td>
+          <td><strong>Synthesizer quality</strong> &mdash; Haiku may produce inconsistent summary formats</td>
+          <td class="sev-sig">Significant</td>
+          <td>Post-synthesis validation: check all required sections exist. If malformed, retry once with stricter prompt. If still bad, keep previous summary. Previous summary fed as template.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>9</td>
+          <td><strong>Email sensitivity</strong> &mdash; Medical/financial/legal emails leaking into summaries</td>
+          <td class="sev-sig">Significant</td>
+          <td>Code-level pre-filter in email_filter.py: pattern-match domains and subjects, drop sensitive categories BEFORE data reaches Haiku. Not relying on LLM for privacy filtering.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>10</td>
+          <td><strong>DM content in summaries</strong> &mdash; Synthesizer might include private DM statements in summaries visible to group</td>
+          <td class="sev-sig">Significant</td>
+          <td>DM history completely removed from synthesizer input. Synthesizers only see: calendar, pre-filtered email, chat mentions, previous summary. DM content stays in DM sessions only.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>11</td>
+          <td><strong>Proactive DM handoff</strong> &mdash; Cron composes DM, but member's reply arrives in different DM session with no context of what was sent</td>
+          <td class="sev-mod">Moderate</td>
+          <td>send_dm tool writes to BOTH donny_memory table AND dm_history table. DM session loads both at start, so it sees what Donny sent.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>12</td>
+          <td><strong>Chat windowing</strong> &mdash; Parsing "last 60 messages" across day-file boundaries, multi-line messages breaking line count</td>
+          <td class="sev-mod">Moderate</td>
+          <td>Parse by [HH:MM] timestamp pattern as message boundary. Read files from today backwards until 60 messages collected. Handles multi-line and day gaps.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>13</td>
+          <td><strong>Discovery spam</strong> &mdash; Bot DMs undiscovered users every 12h until they join or block</td>
+          <td class="sev-mod">Moderate</td>
+          <td>New discovery_log table: (discord_id, attempted_at, success). Skip anyone contacted in last 7 days. Max 1 DM per undiscovered user per week.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>14</td>
+          <td><strong>Running jokes lost</strong> &mdash; donny_memory trims after 48h, losing inside jokes and relationship dynamics</td>
+          <td class="sev-mod">Moderate</td>
+          <td>"Donny Notes" section in member summaries. Synthesizer carries forward from previous summary. Running jokes, tone preferences, things to avoid persist indefinitely.</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+        <tr>
+          <td>15</td>
+          <td><strong>Portal spy language</strong> &mdash; connect_sources.html says "intel" and "gossip engine" breaking the friend illusion</td>
+          <td class="sev-mod">Moderate</td>
+          <td>Rewrite: "intel" &rarr; "some context about you". Delete "gossip engine" entirely. Keep it casual &mdash; "help donny get to know you."</td>
+          <td><span class="badge badge-fixed">FIXED</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Remaining Watch Items</div>
+    <div class="detail-grid">
+      <div class="detail-card">
+        <h3>Prompt Cache Consistency</h3>
+        <ul>
+          <li>SOUL.md + skill must be at <strong>exact same position</strong> in system prompt every call</li>
+          <li>If OpenClaw reorders system prompt sections, cache misses and cost doubles</li>
+          <li><strong>Monitor:</strong> log cache_read_input_tokens from API response</li>
+          <li>If cache hit rate drops below 80%, investigate prompt ordering</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <h3>Everyone Goes Quiet</h3>
+        <ul>
+          <li>If all members go silent, pre-check gate keeps passing &rarr; Donny DMs one person per cycle</li>
+          <li>Could burn through daily DM budget (3/person) in a few hours</li>
+          <li><strong>Safeguard:</strong> global cap of 8-10 proactive DMs total per day across all members</li>
+          <li>After global cap hit, only send DMs in response to inbound messages</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <h3>Synthesizer Staleness</h3>
+        <ul>
+          <li>Summaries update every 2h &mdash; calendar changes between runs are missed</li>
+          <li>"Play dumb" approach mitigates: Donny asks "what are you up to?" not "I see you added dinner"</li>
+          <li><strong>Watch for:</strong> Donny referencing stale plans that changed</li>
+          <li>If frequent issue: add event-driven synth trigger when calendar webhook fires</li>
+        </ul>
+      </div>
+      <div class="detail-card">
+        <h3>Discord Rate Limits</h3>
+        <ul>
+          <li>Burst DMs (proactive cron sending 3+ DMs quickly) can hit Discord limits</li>
+          <li>OpenClaw's Discord adapter likely handles this internally</li>
+          <li><strong>Safeguard:</strong> stagger proactive DMs by 30s minimum between sends</li>
+          <li>Custom send_dm tool should include sleep(30) between calls</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.onclick && t.onclick.toString().includes("'" + name + "'")) {
+      t.classList.add('active');
+    }
+  });
+}
+</script>
+</body>
+</html>

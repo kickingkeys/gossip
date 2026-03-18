@@ -23,9 +23,12 @@ from gossip.dossiers import get_all_dossiers, read_dossier
 
 
 def is_quiet_hours() -> bool:
-    """Check if current time is within quiet hours."""
+    """Check if current time is within quiet hours (timezone-aware)."""
+    from zoneinfo import ZoneInfo
+
     cfg = get_config()
-    hour = datetime.now().hour
+    tz = ZoneInfo(cfg.gossip.timezone)
+    hour = datetime.now(tz).hour
     start = cfg.gossip.quiet_hours_start
     end = cfg.gossip.quiet_hours_end
     if start > end:
@@ -98,8 +101,11 @@ def should_gossip(group_id: str | None = None) -> dict:
     }
 
 
-def get_recent_chat(days: int | None = None) -> str:
-    """Read recent chat transcripts from markdown files."""
+def get_recent_chat(days: int | None = None, max_messages: int | None = None) -> str:
+    """Read recent chat transcripts from markdown files.
+
+    If max_messages is set, returns only the last N messages across all days.
+    """
     cfg = get_config()
     if days is None:
         days = cfg.gossip.chat_history_days
@@ -107,21 +113,31 @@ def get_recent_chat(days: int | None = None) -> str:
     chat_dir = cfg.chat_dir
     chat_dir.mkdir(parents=True, exist_ok=True)
 
-    lines: list[str] = []
+    all_lines: list[str] = []
     now = datetime.now(timezone.utc)
+    from datetime import timedelta
 
     for i in range(days):
         d = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-        from datetime import timedelta
         d = d - timedelta(days=i)
         date_str = d.strftime("%Y-%m-%d")
         file_path = chat_dir / f"{date_str}.md"
         if file_path.exists():
             content = file_path.read_text(encoding="utf-8").strip()
             if content:
-                lines.append(f"# {date_str}\n{content}")
+                all_lines.append(f"# {date_str}\n{content}")
 
-    return "\n\n".join(lines) if lines else "(no recent chat)"
+    full_text = "\n\n".join(all_lines) if all_lines else "(no recent chat)"
+
+    if max_messages and full_text != "(no recent chat)":
+        # Split into individual message lines (lines starting with [HH:MM])
+        import re
+        messages = re.findall(r"\[[\d:]+\] .+", full_text)
+        if len(messages) > max_messages:
+            messages = messages[-max_messages:]
+        return "\n".join(messages)
+
+    return full_text
 
 
 def get_group_dynamics() -> str:
@@ -461,3 +477,225 @@ def append_chat_log(username: str, content: str, timestamp: datetime | None = No
         },
         session_id=get_current_session_id(),
     )
+
+
+# ── Type-aware context assembly ──────────────────────────────────────
+
+
+def gossip_context(context_type: str, member: str | None = None) -> str:
+    """Single entry point for all context assembly.
+
+    context_type:
+      "group"     — group chat response or idle gossip drop
+      "dm"        — DM conversation with a specific member
+      "proactive" — proactive DM outreach to a specific member
+
+    Returns assembled context string ready for the LLM.
+    """
+    from gossip.db import (
+        get_donny_memory,
+        get_all_member_summaries,
+        get_member_summary,
+        get_dm_history as db_get_dm_history,
+    )
+    from gossip.dossiers import get_all_dossiers, read_dossier
+
+    group = get_default_group()
+    group_id = group["id"] if group else None
+
+    if context_type == "group":
+        return _build_group_context(group_id)
+    elif context_type == "dm":
+        return _build_dm_context(group_id, member)
+    elif context_type == "proactive":
+        return _build_proactive_context(group_id, member)
+    else:
+        return _build_group_context(group_id)
+
+
+def _build_group_context(group_id: str | None) -> str:
+    """Context for group chat responses and idle gossip drops."""
+    from gossip.db import get_donny_memory, get_all_member_summaries
+
+    chat = get_recent_chat(max_messages=60)
+    dynamics = get_group_dynamics()
+    history = get_gossip_history_text(group_id)
+    manual = get_manual_input_text(group_id)
+    locations = get_member_locations_text(group_id)
+    investigation = get_investigation_notes(group_id)
+
+    # Prefer summaries over dossiers if available
+    summaries = get_all_member_summaries(group_id) if group_id else []
+    if summaries:
+        summary_parts = []
+        for s in summaries:
+            name = s.get("display_name", "unknown")
+            json_str = s.get("summary_json", "{}")
+            # Truncate to 700 chars per member
+            summary_parts.append(f"**{name}**\n{json_str[:700]}")
+        member_info = "\n---\n".join(summary_parts)
+    else:
+        member_info = get_all_dossiers()
+
+    # Donny's recent memory (group channel only)
+    memories = get_donny_memory(channel_type="group", limit=30)
+    memory_text = "\n".join(
+        f"[{m['timestamp']}] {m['content']}" for m in reversed(memories)
+    ) if memories else "(no recent memory)"
+
+    parts = [
+        "## Recent Chat",
+        chat,
+        "",
+        "## Member Info",
+        member_info,
+        "",
+        "## Member Locations",
+        locations,
+        "",
+        "## Group Dynamics",
+        dynamics,
+        "",
+        "## Donny's Recent Memory",
+        memory_text,
+        "",
+        "## Investigation Notes",
+        investigation,
+        "",
+        "## Previous Gossip (don't repeat these)",
+        history,
+    ]
+
+    if manual:
+        parts.extend(["", "## Fresh Info (from members directly)", manual])
+
+    return "\n\n".join(parts)
+
+
+def _build_dm_context(group_id: str | None, member: str | None) -> str:
+    """Context for DM conversations — isolated to this member only."""
+    from gossip.db import get_donny_memory, get_member_summary
+    from gossip.dossiers import read_dossier
+
+    if not member:
+        return "(error: member name required for DM context)"
+
+    # Find member in DB
+    members = get_members_by_group(group_id) if group_id else []
+    member_record = None
+    for m in members:
+        if m["display_name"].lower() == member.lower():
+            member_record = m
+            break
+
+    # Member summary or dossier
+    about = ""
+    if member_record:
+        summary = get_member_summary(member_record["id"])
+        if summary:
+            about = f"**{member}**\n{summary['summary_json'][:700]}"
+        else:
+            about = read_dossier(member)
+    else:
+        about = read_dossier(member)
+
+    # DM history (this member only — NO cross-member leakage)
+    dm_text = "(no DM history)"
+    if member_record:
+        from gossip.db import get_dm_history as db_get_dm_history
+        history = db_get_dm_history(member_record["id"], limit=20)
+        if history:
+            lines = []
+            for dm in reversed(history):
+                direction = "donny" if dm["direction"] == "outbound" else member
+                lines.append(f"[{dm['created_at'][:16]}] {direction}: {dm['message_text'][:200]}")
+            dm_text = "\n".join(lines)
+
+    # Donny's memory for this DM
+    memories = get_donny_memory(channel_type=f"dm/{member}", limit=20)
+    memory_text = "\n".join(
+        f"[{m['timestamp']}] {m['content']}" for m in reversed(memories)
+    ) if memories else "(no memory for this DM)"
+
+    # Brief group chat context (last 10 messages only, for awareness)
+    brief_chat = get_recent_chat(max_messages=10)
+
+    parts = [
+        f"## About {member}",
+        about,
+        "",
+        "## Our DM History",
+        dm_text,
+        "",
+        f"## Donny's Memory (DM with {member})",
+        memory_text,
+        "",
+        "## What's Happening in the Group (brief)",
+        brief_chat,
+    ]
+
+    return "\n\n".join(parts)
+
+
+def _build_proactive_context(group_id: str | None, member: str | None) -> str:
+    """Context for proactive DM outreach."""
+    from gossip.db import get_donny_memory, get_member_summary
+    from gossip.dossiers import read_dossier
+
+    if not member:
+        return "(error: member name required for proactive context)"
+
+    # Find member
+    members = get_members_by_group(group_id) if group_id else []
+    member_record = None
+    for m in members:
+        if m["display_name"].lower() == member.lower():
+            member_record = m
+            break
+
+    # Member summary or dossier
+    about = ""
+    if member_record:
+        summary = get_member_summary(member_record["id"])
+        if summary:
+            about = f"**{member}**\n{summary['summary_json'][:700]}"
+        else:
+            about = read_dossier(member)
+    else:
+        about = read_dossier(member)
+
+    # DM history (shorter for proactive)
+    dm_text = "(no DM history)"
+    if member_record:
+        from gossip.db import get_dm_history as db_get_dm_history
+        history = db_get_dm_history(member_record["id"], limit=10)
+        if history:
+            lines = []
+            for dm in reversed(history):
+                direction = "donny" if dm["direction"] == "outbound" else member
+                lines.append(f"[{dm['created_at'][:16]}] {direction}: {dm['message_text'][:200]}")
+            dm_text = "\n".join(lines)
+
+    # Donny's memory for this person
+    memories = get_donny_memory(channel_type=f"dm/{member}", limit=15)
+    proactive_memories = get_donny_memory(channel_type=f"proactive/{member}", limit=15)
+    all_memories = sorted(
+        (memories or []) + (proactive_memories or []),
+        key=lambda m: m["created_at"],
+    )[-15:]
+    memory_text = "\n".join(
+        f"[{m['timestamp']}] {m['content']}" for m in all_memories
+    ) if all_memories else "(no memory for this person)"
+
+    parts = [
+        f"## About {member}",
+        about,
+        "",
+        "## Our DM History",
+        dm_text,
+        "",
+        f"## Donny's Memory ({member})",
+        memory_text,
+    ]
+
+    return "\n\n".join(parts)

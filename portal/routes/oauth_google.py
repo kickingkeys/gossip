@@ -131,6 +131,10 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
             from gossip.sources.gmail import deep_sync_member_gmail
             deep_sync_member_calendar(member["id"], member["display_name"])
             deep_sync_member_gmail(member["id"], member["display_name"])
+
+            # Immediately run synthesizer after deep sync (don't wait for cron)
+            from gossip.synthesizer import run_synthesizer_for_member
+            run_synthesizer_for_member(member["id"], member["display_name"])
         except Exception as e:
             print(f"[OAuth] Deep sync failed for {member['display_name']}: {e}", flush=True)
 

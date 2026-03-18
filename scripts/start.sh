@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Gossip Bot — Launch Script
-# Starts the Hermes gateway (bot), onboarding portal, and public tunnel
+# Donny — Launch Script
+# Starts the Python portal, optional tunnel, and OpenClaw gateway
 
 set -e
 
@@ -19,38 +19,33 @@ if [ -f "$PROJECT_ROOT/config/.env" ]; then
     set +a
 fi
 
-# Set Hermes home directory
-export HERMES_HOME="$PROJECT_ROOT/config"
-export PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/vendor/hermes-agent:$PYTHONPATH"
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
 
 PORT="${PORTAL_PORT:-3000}"
 
 echo ""
-echo "  Starting Gossip Bot..."
+echo "  Starting Donny..."
 echo ""
 
-# Initialize database if needed
+# Initialize database
 python -c "from gossip.db import init_db; init_db()"
 
-# Install Hermes hooks (symlink from repo into $HERMES_HOME/hooks/)
-HERMES_HOOKS_DIR="$HERMES_HOME/hooks"
-mkdir -p "$HERMES_HOOKS_DIR"
-if [ -d "$PROJECT_ROOT/hooks/gossip-logger" ] && [ ! -e "$HERMES_HOOKS_DIR/gossip-logger" ]; then
-    ln -s "$PROJECT_ROOT/hooks/gossip-logger" "$HERMES_HOOKS_DIR/gossip-logger"
-    echo "  Installed gossip-logger hook"
-fi
+# Trim old donny_memory entries
+python -c "from gossip.db import trim_donny_memory; trimmed = trim_donny_memory(); print(f'  Trimmed {trimmed} old memory entries') if trimmed else None"
 
-# Initialize logging
-python -c "from gossip.logger import setup_logging; setup_logging()"
+# Create data directories
 mkdir -p "$PROJECT_ROOT/data/logs"
+mkdir -p "$PROJECT_ROOT/data/summaries"
+mkdir -p "$PROJECT_ROOT/data/dossiers"
+mkdir -p "$PROJECT_ROOT/data/chat"
 
-# Start portal in background
-echo "  Starting onboarding portal on port $PORT..."
-python -m portal.app &
+# Start Python portal in background
+echo "  Starting portal on port $PORT..."
+cd "$PROJECT_ROOT" && python -m portal.app &
 PORTAL_PID=$!
 sleep 2
 
-# Start public tunnel
+# Start public tunnel (optional)
 TUNNEL_PID=""
 PUBLIC_URL=""
 
@@ -68,6 +63,12 @@ if command -v cloudflared &>/dev/null; then
 
     if [ -n "$PUBLIC_URL" ]; then
         export PORTAL_PUBLIC_URL="$PUBLIC_URL"
+        # Write tunnel URL to .env so OAuth callback can read it
+        if grep -q "^PORTAL_PUBLIC_URL=" "$PROJECT_ROOT/config/.env" 2>/dev/null; then
+            sed -i '' "s|^PORTAL_PUBLIC_URL=.*|PORTAL_PUBLIC_URL=$PUBLIC_URL|" "$PROJECT_ROOT/config/.env"
+        else
+            echo "PORTAL_PUBLIC_URL=$PUBLIC_URL" >> "$PROJECT_ROOT/config/.env"
+        fi
     fi
 
     if [ -z "$PUBLIC_URL" ]; then
@@ -79,30 +80,19 @@ else
     echo "  Portal accessible locally only: http://localhost:$PORT"
 fi
 
-# Start Hermes gateway
-echo "  Starting Hermes gateway..."
-echo ""
-
-# Import gossip tools (registers them with Hermes registry), then start gateway
-cd "$PROJECT_ROOT/vendor/hermes-agent"
-python -c "
-import sys
-sys.path.insert(0, '$PROJECT_ROOT')
-sys.path.insert(0, '$PROJECT_ROOT/vendor/hermes-agent')
-
-# Register gossip tools
-import gossip_tools
-
-# Patch Discord adapter with gossip-specific slash commands
-from gossip.discord_commands import patch_discord_adapter
-patch_discord_adapter()
-
-# Start Hermes gateway
-from gateway.run import start_gateway
-import asyncio
-asyncio.run(start_gateway())
-" &
-HERMES_PID=$!
+# Start OpenClaw gateway (if installed)
+OPENCLAW_PID=""
+if command -v openclaw &>/dev/null; then
+    echo "  Starting OpenClaw gateway..."
+    cd "$PROJECT_ROOT/openclaw"
+    export GOSSIP_API_URL="http://localhost:$PORT/api/gossip"
+    openclaw gateway &
+    OPENCLAW_PID=$!
+else
+    echo "  OpenClaw not installed — bot will not connect to Discord"
+    echo "  Install OpenClaw: https://github.com/openclaw/openclaw"
+    echo "  Portal API is running at http://localhost:$PORT/api/gossip/"
+fi
 
 # Get invite token
 INVITE_TOKEN=$(python -c "
@@ -113,11 +103,12 @@ g = get_default_group()
 print(g['invite_token'] if g else 'NO_GROUP')
 ")
 
+echo ""
 echo "  Portal PID: $PORTAL_PID"
-echo "  Hermes PID: $HERMES_PID"
+if [ -n "$OPENCLAW_PID" ]; then echo "  OpenClaw PID: $OPENCLAW_PID"; fi
 if [ -n "$TUNNEL_PID" ]; then echo "  Tunnel PID: $TUNNEL_PID"; fi
 echo ""
-echo "  Gossip bot is running!"
+echo "  Donny is running!"
 echo "  Local: http://localhost:$PORT"
 if [ -n "$PUBLIC_URL" ]; then
     echo ""
@@ -127,10 +118,12 @@ if [ -n "$PUBLIC_URL" ]; then
     echo "  Map:         $PUBLIC_URL/map/$INVITE_TOKEN"
 fi
 echo ""
+echo "  API: http://localhost:$PORT/api/gossip/"
+echo ""
 echo "  Press Ctrl+C to stop"
 
 # Trap Ctrl+C to kill all processes
-trap "kill $PORTAL_PID $HERMES_PID $TUNNEL_PID 2>/dev/null; echo '  Stopped.'; exit 0" INT TERM
+trap "kill $PORTAL_PID $OPENCLAW_PID $TUNNEL_PID 2>/dev/null; echo '  Stopped.'; exit 0" INT TERM
 
-# Wait for either process to exit
+# Wait for any process to exit
 wait

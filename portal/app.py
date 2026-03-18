@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from gossip.config import load_config
 from gossip.db import init_db
 from portal.deps import get_templates  # noqa: F401 — re-exported for backward compat
-from portal.routes import invite, onboard, profile, api, oauth_google, map_view
+from portal.routes import invite, onboard, profile, api, oauth_google, map_view, tool_api
 
 _portal_dir = Path(__file__).parent
 
@@ -37,6 +37,7 @@ app.include_router(profile.router)
 app.include_router(api.router, prefix="/api")
 app.include_router(oauth_google.router, prefix="/auth/google")
 app.include_router(map_view.router)
+app.include_router(tool_api.router)
 
 
 @app.on_event("startup")

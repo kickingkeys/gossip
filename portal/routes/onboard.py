@@ -6,7 +6,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from gossip.config import get_config
-from gossip.db import create_member, get_group_by_invite, get_member_by_portal_token
+from gossip.db import create_member, get_group_by_invite, get_member_by_portal_token, update_member
 from portal.deps import get_templates
 
 router = APIRouter()
@@ -19,6 +19,7 @@ async def onboard_member(
     display_name: str = Form(...),
     platform: str = Form(...),
     username: str = Form(""),
+    nicknames: str = Form(""),
 ):
     templates = get_templates()
     group = get_group_by_invite(invite_token)
@@ -41,6 +42,10 @@ async def onboard_member(
         discord_username=discord_username,
         telegram_username=telegram_username,
     )
+
+    # Save nicknames if provided
+    if nicknames.strip():
+        update_member(member["id"], nicknames=nicknames.strip())
 
     # Redirect to the connect sources page
     return RedirectResponse(

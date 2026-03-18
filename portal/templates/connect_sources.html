@@ -4,7 +4,7 @@
 
 <div class="card">
     <h1>welcome, {{ member.display_name }}</h1>
-    <p class="subtitle">let's get {{ bot_name }} some intel on you</p>
+    <p class="subtitle">let's get you connected</p>
 </div>
 
 <!-- Step 1: Connect Google -->
@@ -50,9 +50,9 @@
 <div class="card">
     <div class="step-header">
         <span class="step-number">3</span>
-        <h2>Drop some intel</h2>
+        <h2>Tell {{ bot_name }} something</h2>
     </div>
-    <p class="desc">Tell {{ bot_name }} something about yourself or someone else. This goes straight into the gossip engine.</p>
+    <p class="desc">Tell {{ bot_name }} something about yourself or someone else. This helps your friends stay in the loop.</p>
 
     <form action="/me/{{ member.portal_token }}/input" method="post">
         <textarea name="content" rows="3" placeholder='e.g. "I just got promoted" or "Jordan has been acting weird lately"'></textarea>

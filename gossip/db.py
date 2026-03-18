@@ -131,6 +131,40 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+
+-- Donny's memory of what he said (rolling log, auto-trim >48h)
+CREATE TABLE IF NOT EXISTS donny_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    channel_type TEXT NOT NULL,
+    target TEXT,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_donny_memory_channel ON donny_memory(channel_type);
+CREATE INDEX IF NOT EXISTS idx_donny_memory_created ON donny_memory(created_at);
+
+-- Anti-spam for discovery outreach
+CREATE TABLE IF NOT EXISTS discovery_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    platform_user_id TEXT NOT NULL,
+    platform_username TEXT,
+    dm_sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+    outcome TEXT,
+    UNIQUE(platform, platform_user_id)
+);
+
+-- Member summaries (synthesizer output)
+CREATE TABLE IF NOT EXISTS member_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    summary_json TEXT NOT NULL,
+    version INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(member_id)
+);
 """
 
 
@@ -147,6 +181,7 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
     _migrate_location_columns()
     _migrate_dm_channel_column()
+    _migrate_nicknames_column()
 
 
 @contextmanager
@@ -155,6 +190,7 @@ def get_connection():
     conn = sqlite3.connect(str(_db_path()))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -574,5 +610,203 @@ def get_dm_history(member_id: str, limit: int = 20) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM dm_history WHERE member_id = ? ORDER BY created_at DESC LIMIT ?",
             (member_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Nicknames Migration ───────────────────────────────────────────────
+
+
+def _migrate_nicknames_column() -> None:
+    """Add nicknames column to members table if it doesn't exist."""
+    with get_connection() as conn:
+        try:
+            conn.execute("ALTER TABLE members ADD COLUMN nicknames TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+
+# ── Donny Memory ──────────────────────────────────────────────────────
+
+
+def log_donny_memory(channel_type: str, target: str | None, content: str) -> int:
+    """Log something donny said. Returns the row ID."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """INSERT INTO donny_memory (timestamp, channel_type, target, content, created_at)
+            VALUES (?, ?, ?, ?, ?)""",
+            (_now(), channel_type, target, content, _now()),
+        )
+        return cursor.lastrowid
+
+
+def get_donny_memory(channel_type: str | None = None, limit: int = 30) -> list[dict]:
+    """Get donny's recent memory, optionally filtered by channel type."""
+    with get_connection() as conn:
+        if channel_type:
+            rows = conn.execute(
+                "SELECT * FROM donny_memory WHERE channel_type = ? ORDER BY created_at DESC LIMIT ?",
+                (channel_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM donny_memory ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def trim_donny_memory(max_age_hours: int = 48) -> int:
+    """Delete donny_memory entries older than max_age_hours. Returns rows deleted."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM donny_memory WHERE created_at < datetime('now', ?)",
+            (f"-{max_age_hours} hours",),
+        )
+        return cursor.rowcount
+
+
+# ── Discovery Log ─────────────────────────────────────────────────────
+
+
+def log_discovery_attempt(
+    platform: str, user_id: str, username: str | None = None
+) -> None:
+    """Record a discovery DM attempt."""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO discovery_log (platform, platform_user_id, platform_username, dm_sent_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(platform, platform_user_id) DO UPDATE SET
+                dm_sent_at = excluded.dm_sent_at,
+                platform_username = COALESCE(excluded.platform_username, discovery_log.platform_username)""",
+            (platform, user_id, username, _now()),
+        )
+
+
+def get_discovery_attempt(platform: str, user_id: str) -> dict | None:
+    """Get a discovery attempt record."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM discovery_log WHERE platform = ? AND platform_user_id = ?",
+            (platform, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def can_dm_undiscovered(platform: str, user_id: str, cooldown_days: int = 7) -> bool:
+    """Check if we can DM an undiscovered user (respects cooldown)."""
+    attempt = get_discovery_attempt(platform, user_id)
+    if not attempt:
+        return True
+
+    last_sent = datetime.fromisoformat(attempt["dm_sent_at"])
+    if last_sent.tzinfo is None:
+        last_sent = last_sent.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    days_since = (now - last_sent).total_seconds() / 86400
+    return days_since >= cooldown_days
+
+
+# ── Member Summaries ──────────────────────────────────────────────────
+
+
+def upsert_member_summary(member_id: str, summary_json: str) -> None:
+    """Insert or update a member's synthesized summary."""
+    now = _now()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO member_summaries (member_id, summary_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(member_id) DO UPDATE SET
+                summary_json = excluded.summary_json,
+                version = member_summaries.version + 1,
+                updated_at = excluded.updated_at""",
+            (member_id, summary_json, now, now),
+        )
+
+
+def get_member_summary(member_id: str) -> dict | None:
+    """Get a member's latest summary."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM member_summaries WHERE member_id = ?",
+            (member_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_all_member_summaries(group_id: str) -> list[dict]:
+    """Get all member summaries for a group."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT ms.*, m.display_name FROM member_summaries ms
+            JOIN members m ON ms.member_id = m.id
+            WHERE m.group_id = ?
+            ORDER BY m.display_name""",
+            (group_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Member Purge (GDPR-like) ─────────────────────────────────────────
+
+
+def purge_member(member_id: str, member_name: str) -> None:
+    """Fully purge a member's data. Cascade handles related tables."""
+    from pathlib import Path
+    from gossip.config import get_config
+
+    cfg = get_config()
+
+    # Delete dossier file
+    dossier_path = cfg.dossiers_dir / f"{member_name.lower().replace(' ', '_')}.md"
+    if dossier_path.exists():
+        dossier_path.unlink()
+
+    # Delete summary file
+    summary_path = cfg.summaries_dir / f"{member_name.lower().replace(' ', '_')}.md"
+    if summary_path.exists():
+        summary_path.unlink()
+
+    # Scrub name from donny_memory
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE donny_memory SET target = '[removed]', content = REPLACE(content, ?, '[removed]') WHERE target = ?",
+            (member_name, member_name),
+        )
+
+    # Delete member row (cascades to oauth_tokens, dm_history, manual_input, sync_state, member_summaries)
+    delete_member(member_id)
+
+
+# ── Case-insensitive member queries ──────────────────────────────────
+
+
+def get_member_by_discord_username_ci(username: str) -> dict | None:
+    """Case-insensitive discord username lookup."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM members WHERE LOWER(discord_username) = LOWER(?)",
+            (username,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_member_by_display_name_ci(display_name: str) -> dict | None:
+    """Case-insensitive display name lookup."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM members WHERE LOWER(display_name) = LOWER(?)",
+            (display_name,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_members_with_nicknames() -> list[dict]:
+    """Get all members that have nicknames set."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM members WHERE nicknames IS NOT NULL AND nicknames != ''"
         ).fetchall()
         return [dict(r) for r in rows]
