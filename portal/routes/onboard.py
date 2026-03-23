@@ -6,7 +6,11 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from gossip.config import get_config
-from gossip.db import create_member, get_group_by_invite, get_member_by_portal_token, update_member
+from gossip.db import (
+    create_member, get_group_by_invite, get_member_by_portal_token,
+    get_member_by_discord_username_ci, get_member_by_display_name_ci,
+    get_members_by_group, update_member,
+)
 from portal.deps import get_templates
 
 router = APIRouter()
@@ -32,20 +36,39 @@ async def onboard_member(
             "bot_name": "",
         })
 
-    # Create the member
     discord_username = username if platform in ("discord", "both") else None
     telegram_username = username if platform in ("telegram", "both") else None
 
-    member = create_member(
-        group_id=group["id"],
-        display_name=display_name,
-        discord_username=discord_username,
-        telegram_username=telegram_username,
-    )
+    # Check if member already exists (by discord username or display name)
+    member = None
+    if discord_username:
+        member = get_member_by_discord_username_ci(discord_username)
+    if not member:
+        member = get_member_by_display_name_ci(display_name)
 
-    # Save nicknames if provided
-    if nicknames.strip():
-        update_member(member["id"], nicknames=nicknames.strip())
+    if member:
+        # Update existing member with any new info
+        updates = {}
+        if discord_username and not member.get("discord_username"):
+            updates["discord_username"] = discord_username
+        if telegram_username and not member.get("telegram_username"):
+            updates["telegram_username"] = telegram_username
+        if nicknames.strip():
+            updates["nicknames"] = nicknames.strip()
+        if updates:
+            update_member(member["id"], **updates)
+        # Use existing member's portal token
+        member = get_member_by_portal_token(member["portal_token"]) or member
+    else:
+        # Create new member
+        member = create_member(
+            group_id=group["id"],
+            display_name=display_name,
+            discord_username=discord_username,
+            telegram_username=telegram_username,
+        )
+        if nicknames.strip():
+            update_member(member["id"], nicknames=nicknames.strip())
 
     # Redirect to the connect sources page
     return RedirectResponse(

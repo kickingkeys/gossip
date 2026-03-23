@@ -543,12 +543,36 @@ def _build_group_context(group_id: str | None) -> str:
         f"[{m['timestamp']}] {m['content']}" for m in reversed(memories)
     ) if memories else "(no recent memory)"
 
+    # Sabotage ammunition
+    try:
+        from gossip.sabotage import find_gossip_ammunition
+        ammo = find_gossip_ammunition(group_id)
+        ammo_parts = []
+        if ammo.get("overlaps"):
+            ammo_parts.append("**Calendar Overlaps:**")
+            for o in ammo["overlaps"][:5]:
+                ammo_parts.append(f"- {o['members'][0]} and {o['members'][1]}: {o['detail']}")
+        if ammo.get("contradictions"):
+            ammo_parts.append("**Contradictions:**")
+            for c in ammo["contradictions"][:5]:
+                ammo_parts.append(f"- {c['member']}: said \"{c['said']}\" but {c['but']}")
+        if ammo.get("opportunities"):
+            ammo_parts.append("**Opportunities:**")
+            for op in ammo["opportunities"][:5]:
+                ammo_parts.append(f"- {op['member']}: {op['reason']}")
+        ammunition_text = "\n".join(ammo_parts) if ammo_parts else "(no ammunition found)"
+    except Exception:
+        ammunition_text = "(ammunition module error)"
+
     parts = [
         "## Recent Chat",
         chat,
         "",
         "## Member Info",
         member_info,
+        "",
+        "## Ammunition (contradictions, overlaps, opportunities)",
+        ammunition_text,
         "",
         "## Member Locations",
         locations,

@@ -157,8 +157,25 @@ async def pick_dm_target(request: Request):
 
             # Check if Google connected
             google = get_oauth_token(m["id"], "google")
-            if not google:
-                angles.append("Google not connected — could mention the setup link")
+            needs_onboarding = not google
+            if needs_onboarding:
+                angles.append("Google not connected — casually drop the setup link in conversation")
+
+            # Build onboarding URL
+            onboarding_url = None
+            if needs_onboarding:
+                import os
+                group = get_default_group()
+                try:
+                    from dotenv import dotenv_values
+                    from gossip.config import _project_root
+                    env = dotenv_values(_project_root() / "config" / ".env")
+                    base_url = (env.get("PORTAL_PUBLIC_URL") or "").rstrip("/")
+                except Exception:
+                    base_url = ""
+                if not base_url:
+                    base_url = os.environ.get("PORTAL_PUBLIC_URL", "http://localhost:3000").rstrip("/")
+                onboarding_url = f"{base_url}/join/{group['invite_token']}"
 
             best = {
                 "name": m["display_name"],
@@ -168,6 +185,8 @@ async def pick_dm_target(request: Request):
                 "dossier_chars": dossier_chars,
                 "hours_since_dm": round(hours_since_dm, 1),
                 "suggested_angle": " | ".join(angles) if angles else "just say hey",
+                "needs_onboarding": needs_onboarding,
+                "onboarding_url": onboarding_url,
             }
 
     if not best:
@@ -215,31 +234,85 @@ async def log_memory(request: Request):
 
 @router.post("/discover-members")
 async def discover_members(request: Request):
-    """Check which known user IDs can be DM'd for discovery."""
-    body = await request.json()
-    platform = body.get("platform", "discord")
-    known_ids = body.get("known_user_ids", [])
+    """Fetch Discord guild members, compare against DB, return undiscovered ones."""
+    import os
+    import requests as http_requests
 
     group_id = _get_group_id()
-    members = get_members_by_group(group_id) if group_id else []
+    if not group_id:
+        return JSONResponse({"error": "no group"}, status_code=400)
 
-    # Get existing discord IDs
-    existing_ids = set()
-    for m in members:
-        if m.get("discord_id"):
-            existing_ids.add(m["discord_id"])
+    group = get_default_group()
+    members = get_members_by_group(group_id)
+
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    if not bot_token:
+        return JSONResponse({"error": "DISCORD_BOT_TOKEN not set"}, status_code=500)
+
+    headers = {"Authorization": f"Bot {bot_token}"}
+
+    # Fetch all guilds and their members
+    try:
+        guilds = http_requests.get(
+            "https://discord.com/api/v10/users/@me/guilds",
+            headers=headers, timeout=10,
+        ).json()
+    except Exception as e:
+        return JSONResponse({"error": f"Discord API error: {e}"}, status_code=500)
+
+    # Build lookup of existing member discord IDs and usernames
+    existing_ids = {m.get("discord_id") for m in members if m.get("discord_id")}
+    existing_usernames = {(m.get("discord_username") or "").lower() for m in members if m.get("discord_username")}
 
     undiscovered = []
-    for uid in known_ids:
-        if uid in existing_ids:
+    for guild_info in guilds:
+        try:
+            guild_members = http_requests.get(
+                f"https://discord.com/api/v10/guilds/{guild_info['id']}/members?limit=1000",
+                headers=headers, timeout=15,
+            ).json()
+            if not isinstance(guild_members, list):
+                continue
+        except Exception:
             continue
-        can_dm = can_dm_undiscovered(platform, uid)
-        undiscovered.append({
-            "user_id": uid,
-            "can_dm": can_dm,
-        })
 
-    return JSONResponse({"undiscovered": undiscovered})
+        for gm in guild_members:
+            user = gm.get("user", {})
+            if user.get("bot"):
+                continue
+
+            uid = user.get("id", "")
+            username = user.get("username", "")
+            display_name = gm.get("nick") or user.get("global_name") or username
+
+            if uid in existing_ids or username.lower() in existing_usernames:
+                continue
+
+            can_dm = can_dm_undiscovered("discord", uid)
+            undiscovered.append({
+                "user_id": uid,
+                "username": username,
+                "display_name": display_name,
+                "can_dm": can_dm,
+            })
+
+    # Build onboarding URL
+    try:
+        from dotenv import dotenv_values
+        from gossip.config import _project_root
+        env = dotenv_values(_project_root() / "config" / ".env")
+        base_url = (env.get("PORTAL_PUBLIC_URL") or "").rstrip("/")
+    except Exception:
+        base_url = ""
+    if not base_url:
+        base_url = os.environ.get("PORTAL_PUBLIC_URL", "http://localhost:3000").rstrip("/")
+    onboarding_url = f"{base_url}/join/{group['invite_token']}"
+
+    return JSONResponse({
+        "undiscovered": undiscovered,
+        "onboarding_url": onboarding_url,
+        "total_found": len(undiscovered),
+    })
 
 
 @router.post("/sync-sources")
@@ -266,6 +339,9 @@ async def sync_sources(request: Request):
         try:
             sync_member_calendar(m["id"], m["display_name"])
             sync_member_gmail(m["id"], m["display_name"])
+            # Compact dossier after sync to prevent bloat
+            from gossip.compactor import compact_dossier
+            compact_dossier(m["display_name"])
             results["synced"] += 1
             results["members"].append({"name": m["display_name"], "status": "ok"})
         except Exception as e:
@@ -293,6 +369,16 @@ async def synthesizer_save(request: Request):
     body = await request.json()
     upsert_member_summary(body["member_id"], body["summary_json"])
     return JSONResponse({"success": True})
+
+
+@router.post("/ammunition")
+async def get_ammunition(request: Request):
+    """Get sabotage ammunition — contradictions, overlaps, and opportunities."""
+    from gossip.sabotage import find_gossip_ammunition
+
+    group_id = _get_group_id()
+    ammo = find_gossip_ammunition(group_id)
+    return JSONResponse(ammo)
 
 
 @router.post("/update-dynamics")

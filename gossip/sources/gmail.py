@@ -108,7 +108,12 @@ def sync_member_gmail(member_id: str, member_name: str) -> list[dict]:
         token_uri="https://oauth2.googleapis.com/token",
     )
 
-    emails = fetch_recent_emails(creds, max_results=5, query="newer_than:1d")
+    emails = fetch_recent_emails(creds, max_results=10, query="newer_than:1d")
+
+    # Filter out sensitive and irrelevant emails
+    if emails and "error" not in emails[0]:
+        from gossip.email_filter import filter_emails
+        emails = filter_emails(emails)
 
     if emails and "error" not in emails[0]:
         lines = []
@@ -165,6 +170,11 @@ def deep_sync_member_gmail(member_id: str, member_name: str) -> list[dict]:
     )
 
     emails = fetch_recent_emails(creds, max_results=50, query="newer_than:30d")
+
+    # Filter out noise
+    if emails and "error" not in emails[0]:
+        from gossip.email_filter import filter_emails
+        emails = filter_emails(emails)
 
     if emails and "error" not in emails[0]:
         # Group by sender frequency

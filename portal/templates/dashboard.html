@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>donny — dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#f6f5f2;--white:#fff;--s1:#edecea;--s2:#e4e3e0;
+--t1:#1a1a1a;--t2:#555;--t3:#999;--t4:#ccc;
+--ac:#b07a4a;--ac2:#8a6038;--acbg:#f5efe8;
+--mono:'JetBrains Mono',monospace;
+--sans:'DM Sans',sans-serif;
+--serif:'Instrument Serif',Georgia,serif;
+--sidebar-w:220px;
+}
+html{font-size:13px;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--t1);font-family:var(--sans);line-height:1.55;min-height:100vh;display:flex}
+
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s2);border-radius:2px}
+
+/* ── Sidebar ────────────────────────── */
+.sidebar{
+width:var(--sidebar-w);height:100vh;position:fixed;left:0;top:0;
+background:var(--white);border-right:1px solid var(--s2);
+display:flex;flex-direction:column;padding:1.5rem 0;z-index:100;
+}
+.sidebar-logo{
+font-family:var(--serif);font-size:1.8rem;color:var(--t1);
+padding:0 1.5rem 1.2rem;border-bottom:1px solid var(--s1);
+}
+.sidebar-logo span{font-size:0.7rem;font-family:var(--sans);color:var(--t3);display:block;margin-top:0.1rem;letter-spacing:0.05em}
+.sidebar-nav{padding:0.8rem 0;flex:1}
+.nav-item{
+display:flex;align-items:center;gap:0.6rem;
+padding:0.55rem 1.5rem;font-size:0.8rem;color:var(--t2);
+cursor:pointer;transition:all 0.15s;border-left:2px solid transparent;
+}
+.nav-item:hover{color:var(--t1);background:var(--s1)}
+.nav-item.active{color:var(--ac2);border-left-color:var(--ac);background:var(--acbg);font-weight:500}
+.nav-icon{font-size:0.9rem;width:1.2rem;text-align:center}
+.sidebar-status{
+padding:1rem 1.5rem;border-top:1px solid var(--s1);
+font-size:0.7rem;color:var(--t3);display:flex;align-items:center;gap:0.4rem;
+}
+.pulse{width:5px;height:5px;border-radius:50%;background:#5a9a5a;animation:glow 3s ease infinite}
+@keyframes glow{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* ── Main ───────────────────────────── */
+.main{margin-left:var(--sidebar-w);flex:1;min-height:100vh}
+.topbar{
+padding:1.2rem 2rem;border-bottom:1px solid var(--s1);background:var(--white);
+display:flex;align-items:center;justify-content:space-between;
+position:sticky;top:0;z-index:50;
+}
+.topbar-title{font-size:0.75rem;color:var(--t3);letter-spacing:0.1em;text-transform:uppercase}
+.topbar-time{font-family:var(--mono);font-size:0.7rem;color:var(--t3)}
+
+/* ── Pages ──────────────────────────── */
+.page{display:none;padding:1.5rem 2rem 3rem}
+.page.active{display:block}
+
+/* ── Stats Cards ────────────────────── */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0.8rem;margin-bottom:1.5rem}
+.stat-card{background:var(--white);border-radius:8px;padding:1.2rem 1.3rem;border:1px solid var(--s1)}
+.stat-card .n{font-family:var(--serif);font-size:2rem;color:var(--t1);margin-bottom:0.1rem}
+.stat-card .l{font-size:0.65rem;color:var(--t3);text-transform:uppercase;letter-spacing:0.12em}
+.stat-card .sub{font-size:0.7rem;color:var(--t3);margin-top:0.3rem}
+
+/* ── Latest Drop ────────────────────── */
+.latest-card{
+background:var(--acbg);border:1px solid #e8ddd0;border-radius:8px;
+padding:1.2rem 1.5rem;margin-bottom:1.5rem;
+}
+.latest-label{font-size:0.6rem;color:var(--ac2);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:0.4rem}
+.latest-text{font-family:var(--serif);font-size:1.15rem;color:var(--t1);line-height:1.5}
+.latest-time{font-size:0.65rem;color:var(--t3);margin-top:0.3rem}
+
+/* ── Activity Feed ──────────────────── */
+.feed-row{
+display:flex;align-items:baseline;gap:0.8rem;
+padding:0.5rem 0;border-bottom:1px solid var(--s1);font-size:0.8rem;
+}
+.feed-row:last-child{border-bottom:none}
+.feed-time{font-family:var(--mono);color:var(--t3);flex-shrink:0;width:3.5rem;font-size:0.7rem}
+.tag{
+flex-shrink:0;font-size:0.6rem;letter-spacing:0.06em;text-transform:uppercase;
+padding:0.12rem 0.5rem;border-radius:3px;font-family:var(--sans);font-weight:500;
+}
+.tag.dm{background:#e8f0f8;color:#4a7aaa}
+.tag.drop{background:#f5f0e0;color:#9a8a40}
+.tag.sync{background:#e5f2e8;color:#4a8a5a}
+.tag.error{background:#f8e8e8;color:#aa4a4a}
+.tag.cron{background:#eee8f5;color:#7a5aaa}
+.tag.memory{background:var(--acbg);color:var(--ac2)}
+.feed-text{color:var(--t2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Member Cards ───────────────────── */
+.member-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:0.8rem}
+.m-card{background:var(--white);border:1px solid var(--s1);border-radius:8px;padding:1rem 1.2rem;transition:border-color 0.15s}
+.m-card:hover{border-color:var(--s2)}
+.m-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.3rem}
+.m-card-name{font-family:var(--serif);font-size:1.15rem;color:var(--t1)}
+.m-card-dot{width:6px;height:6px;border-radius:50%}
+.m-card-dot.on{background:#5a9a5a}
+.m-card-dot.off{background:#ccc}
+.m-card-user{font-size:0.7rem;color:var(--t3);margin-bottom:0.5rem}
+.m-card-meta{font-size:0.7rem;color:var(--t3);display:flex;gap:0.6rem}
+.m-card-dm{font-size:0.7rem;color:var(--t3);margin-top:0.4rem;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Memory ─────────────────────────── */
+.mem-row{padding:0.55rem 0;border-bottom:1px solid var(--s1);display:flex;gap:0.8rem;align-items:baseline}
+.mem-row:last-child{border-bottom:none}
+.mem-ch{font-size:0.6rem;color:var(--ac2);text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0;width:5.5rem}
+.mem-text{font-size:0.8rem;color:var(--t2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mem-ago{font-family:var(--mono);font-size:0.65rem;color:var(--t4);flex-shrink:0}
+
+/* ── Dossiers ───────────────────────── */
+.dos-tabs{display:flex;gap:0;border-bottom:1px solid var(--s2);margin-bottom:0}
+.dtab{
+padding:0.5rem 1.2rem;font-size:0.75rem;color:var(--t3);cursor:pointer;
+border-bottom:2px solid transparent;transition:color 0.15s;margin-bottom:-1px;
+}
+.dtab:hover{color:var(--t1)}
+.dtab.active{color:var(--ac2);border-bottom-color:var(--ac)}
+.dos-body{
+background:var(--white);border:1px solid var(--s1);border-top:none;border-radius:0 0 8px 8px;
+padding:1.2rem 1.4rem;font-family:var(--mono);font-size:0.75rem;line-height:1.7;
+color:var(--t2);white-space:pre-wrap;word-break:break-word;max-height:500px;overflow-y:auto;
+}
+
+/* ── Mobile ─────────────────────────── */
+.mobile-header{display:none}
+@media(max-width:800px){
+.sidebar{display:none}
+.main{margin-left:0}
+.mobile-header{
+display:flex;align-items:center;justify-content:space-between;
+padding:1rem 1.2rem;background:var(--white);border-bottom:1px solid var(--s1);
+position:sticky;top:0;z-index:100;
+}
+.mobile-header .logo{font-family:var(--serif);font-size:1.4rem}
+.mobile-nav{display:flex;gap:0;overflow-x:auto;background:var(--white);border-bottom:1px solid var(--s1);position:sticky;top:48px;z-index:99}
+.mobile-nav .nav-item{padding:0.6rem 1rem;border-left:none;border-bottom:2px solid transparent;white-space:nowrap;font-size:0.75rem}
+.mobile-nav .nav-item.active{border-bottom-color:var(--ac);border-left:none;background:transparent}
+.topbar{display:none}
+.page{padding:1rem 1.2rem 2rem}
+.stats-grid{grid-template-columns:repeat(2,1fr)}
+.member-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar (desktop) -->
+<div class="sidebar">
+<div class="sidebar-logo">donny<span>dashboard</span></div>
+<div class="sidebar-nav">
+<div class="nav-item active" data-page="overview"><span class="nav-icon">◉</span>Overview</div>
+<div class="nav-item" data-page="activity"><span class="nav-icon">◈</span>Activity</div>
+<div class="nav-item" data-page="members"><span class="nav-icon">◎</span>Members</div>
+<div class="nav-item" data-page="memory"><span class="nav-icon">◇</span>Memory</div>
+<div class="nav-item" data-page="dossiers"><span class="nav-icon">◆</span>Dossiers</div>
+</div>
+<div class="sidebar-status"><div class="pulse"></div>live<span id="sidebarTime"></span></div>
+</div>
+
+<!-- Mobile header -->
+<div class="mobile-header">
+<div class="logo">donny</div>
+<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;color:var(--t3)"><div class="pulse"></div>live</div>
+</div>
+<div class="mobile-nav" id="mobileNav"></div>
+
+<!-- Main content -->
+<div class="main">
+<div class="topbar">
+<div class="topbar-title" id="pageTitle">Overview</div>
+<div class="topbar-time" id="clock"></div>
+</div>
+
+<!-- Overview Page -->
+<div class="page active" id="p-overview">
+<div class="stats-grid" id="statsGrid">
+<div class="stat-card"><div class="n" id="sMembers">—</div><div class="l">Members</div></div>
+<div class="stat-card"><div class="n" id="sSources">—</div><div class="l">Sources</div></div>
+<div class="stat-card"><div class="n" id="sMessages">—</div><div class="l">Messages</div></div>
+<div class="stat-card"><div class="n" id="sIntel">—</div><div class="l">Intel</div></div>
+</div>
+<div class="latest-card">
+<div class="latest-label">Latest Drop</div>
+<div class="latest-text" id="latestText">…</div>
+<div class="latest-time" id="latestTime"></div>
+</div>
+<h3 style="font-size:0.65rem;color:var(--t3);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.6rem">Recent Activity</h3>
+<div id="overviewFeed"></div>
+</div>
+
+<!-- Activity Page -->
+<div class="page" id="p-activity">
+<div id="fullFeed"></div>
+</div>
+
+<!-- Members Page -->
+<div class="page" id="p-members">
+<div class="member-grid" id="memberGrid"></div>
+</div>
+
+<!-- Memory Page -->
+<div class="page" id="p-memory">
+<div id="memoryList"></div>
+</div>
+
+<!-- Dossiers Page -->
+<div class="page" id="p-dossiers">
+<div class="dos-tabs" id="dosTabs"></div>
+<div class="dos-body" id="dosBody">select a member</div>
+</div>
+
+</div>
+
+<script>
+const A='/api/gossip/dashboard';
+let aTab=null,curPage='overview',prevAct=0;
+
+async function f(u){try{let r=await fetch(u);if(!r.ok)throw 0;return r.json()}catch{return null}}
+function ago(s){if(!s)return'';let m=Math.floor((Date.now()-new Date(s))/6e4);if(m<1)return'now';if(m<60)return m+'m';let h=Math.floor(m/60);if(h<24)return h+'h';return Math.floor(h/24)+'d'}
+function hm(s){if(!s)return'';let d=new Date(s);return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})}
+function e(s){if(!s)return'';let d=document.createElement('i');d.textContent=s;return d.innerHTML}
+
+function feedHTML(events,limit){
+return(events||[]).slice(0,limit).map(ev=>{
+let tag=ev.type||'context';
+let label={dm:'dm',memory:'mem',context:'ctx',error:'err',cron:'cron'}[tag]||tag;
+return`<div class="feed-row"><span class="feed-time">${hm(ev.time)}</span><span class="tag ${tag}">${label}</span><span class="feed-text">${e(ev.text)}</span></div>`
+}).join('')||'<div style="padding:1rem;color:var(--t3)">waiting…</div>';
+}
+
+// Navigation
+function nav(page){
+curPage=page;
+document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+document.getElementById('p-'+page)?.classList.add('active');
+document.querySelectorAll('.nav-item').forEach(n=>{n.classList.toggle('active',n.dataset.page===page)});
+document.getElementById('pageTitle').textContent=page.charAt(0).toUpperCase()+page.slice(1);
+}
+document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=>nav(n.dataset.page)));
+
+// Mobile nav
+let mNav=document.getElementById('mobileNav');
+['overview','activity','members','memory','dossiers'].forEach(p=>{
+let d=document.createElement('div');d.className='nav-item'+(p==='overview'?' active':'');
+d.dataset.page=p;d.textContent=p;d.addEventListener('click',()=>{nav(p);mNav.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===p))});
+mNav.appendChild(d);
+});
+
+async function refresh(){
+let[ov,ac,me,ds]=await Promise.all([f(A+'/overview'),f(A+'/activity'),f(A+'/memory'),f(A+'/dossiers')]);
+let now=new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+document.getElementById('clock').textContent=now;
+document.getElementById('sidebarTime').textContent=' · '+now;
+
+if(ov){
+document.getElementById('sMembers').textContent=ov.total_members||0;
+document.getElementById('sSources').textContent=ov.google_connected||0;
+document.getElementById('sMessages').textContent=ov.total_dms||0;
+document.getElementById('sIntel').textContent=ov.total_dossier_bytes?Math.round(ov.total_dossier_bytes/1024)+'kb':'0';
+// Members page
+document.getElementById('memberGrid').innerHTML=(ov.members||[]).map(m=>`<div class="m-card">
+<div class="m-card-top"><div class="m-card-name">${e(m.name)}</div><div class="m-card-dot ${m.google?'on':'off'}"></div></div>
+<div class="m-card-user">@${e(m.username||'?')}</div>
+<div class="m-card-meta"><span>${m.google?'Google ✓':'No source'}</span><span>${m.dossier_bytes?Math.round(m.dossier_bytes/1024*10)/10+'kb':'—'}</span><span>${m.dm_count||0} DMs</span></div>
+${m.last_dm?`<div class="m-card-dm">"${e(m.last_dm)}"</div>`:''}
+</div>`).join('');
+}
+
+if(ac&&ac.events){
+document.getElementById('overviewFeed').innerHTML=feedHTML(ac.events,8);
+document.getElementById('fullFeed').innerHTML=feedHTML(ac.events,50);
+// Latest drop
+let drop=ac.events.find(ev=>ev.type==='memory'&&ev.text?.includes('[group]'));
+if(!drop)drop=ac.events[0];
+if(drop){let t=drop.text||'';if(t.startsWith('[group] '))t=t.slice(8);
+document.getElementById('latestText').textContent=t.slice(0,200);
+document.getElementById('latestTime').textContent=ago(drop.time);}
+}
+
+if(me&&me.memories){
+document.getElementById('memoryList').innerHTML=me.memories.map(m=>`<div class="mem-row">
+<span class="mem-ch">${e(m.channel_type)}</span>
+<span class="mem-text">${e(m.content)}</span>
+<span class="mem-ago">${ago(m.timestamp)}</span>
+</div>`).join('')||'<div style="padding:1rem;color:var(--t3)">no memories</div>';
+}
+
+if(ds&&ds.dossiers){
+let total=ds.dossiers.reduce((a,d)=>a+(d.size||0),0);
+document.getElementById('dosTabs').innerHTML=ds.dossiers.map(d=>`<div class="dtab${aTab===d.name?' active':''}" onclick="selDos('${e(d.name)}')">${e(d.name)}</div>`).join('');
+if(!aTab&&ds.dossiers.length)selDos(ds.dossiers[0].name);
+else if(aTab){let d=ds.dossiers.find(d=>d.name===aTab);if(d)document.getElementById('dosBody').textContent=d.content||'(empty)'}
+}}
+
+function selDos(n){
+aTab=n;
+document.querySelectorAll('.dtab').forEach(t=>t.classList.toggle('active',t.textContent===n));
+f(A+'/dossiers').then(d=>{if(!d)return;let x=d.dossiers.find(x=>x.name===n);document.getElementById('dosBody').textContent=x?x.content:'(not found)'});
+}
+
+refresh();setInterval(refresh,12000);
+</script>
+</body>
+</html>

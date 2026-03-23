@@ -86,7 +86,7 @@ if command -v openclaw &>/dev/null; then
     echo "  Starting OpenClaw gateway..."
     cd "$PROJECT_ROOT/openclaw"
     export GOSSIP_API_URL="http://localhost:$PORT/api/gossip"
-    openclaw gateway &
+    openclaw --profile gossip gateway &
     OPENCLAW_PID=$!
 else
     echo "  OpenClaw not installed — bot will not connect to Discord"
