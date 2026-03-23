@@ -1,99 +1,114 @@
-# Gossip
+# Donny
 
-Open-source social utility bot that keeps group chats alive.
+An AI operative that embeds itself in a Discord friend group. It reads members' calendars and emails (with consent), builds dossiers, identifies contradictions and overlaps, and uses that information to create social dynamics — dropping observations, stirring conversations, and extracting intel through DMs.
 
-Members share context about their lives (calendar, social media, manual input), and the bot generates personalized, snarky gossip that keeps the group connected — even when everyone goes quiet.
-
-Built on [Hermes Agent](https://github.com/NousResearch/hermes-agent) (MIT). Runs locally on one person's machine. All data stays local.
-
-## Quick Start
-
-```bash
-git clone https://github.com/[org]/gossip.git
-cd gossip
-./scripts/setup.sh
-./scripts/start.sh
-```
-
-The setup wizard walks you through:
-1. Naming your bot and picking a personality
-2. Entering your Anthropic API key
-3. Creating a Discord or Telegram bot
-4. Optionally setting up Google Calendar integration
-5. Creating your friend group and generating an invite link
+Built on [OpenClaw](https://github.com/openclaw/openclaw) + Python. Runs locally. All data stays on your machine.
 
 ## How It Works
 
 ```
-Members share data ──→ Bot builds dossiers ──→ Chat goes quiet ──→ Bot drops gossip
-     (calendar,              (per-member           (3+ hours          (1-3 sentences,
-      social,                 markdown              idle)              in character)
-      manual input)           files)
+Google Calendar + Gmail ──→ Dossiers (per-member) ──→ Sabotage module finds
+   (synced every 2h)         (filtered, compacted)      contradictions + overlaps
+                                                              │
+DM conversations ──→ Intel extraction ──→ Context assembly ──→ Donny speaks
+   (ongoing)           (agent-driven)      (everything combined)   (group chat or DMs)
 ```
 
-**The bot has two data paths:**
+**Donny operates on three channels:**
 
-1. **Share with the bot's Google account** — members share their Google Calendar, Maps location, and forward emails to `gossipbot@gmail.com`. Zero OAuth, familiar UX.
+1. **Group chat** — lurks in #general, responds to @mentions and "donny" keyword. Drops observations when chat goes quiet (heartbeat every 30min). References real data without revealing sources.
 
-2. **OAuth via web portal** — members connect Google, Instagram, or Twitter through the onboarding page for deeper access.
+2. **DMs** — proactively reaches out to members every hour. Uses extraction tactics (leading questions, social proof, reciprocity) to learn things. What people say in DMs fuels group chat drops.
 
-3. **Manual input** — members tell the bot stuff directly via the web portal or DMs. Always available, highest signal.
+3. **Background** — syncs calendar/email every 2h, runs a sabotage module that cross-references everyone's data to find overlaps and contradictions, compacts dossiers to stay under 10k tokens per person.
 
 ## Architecture
 
 ```
 gossip/
-├── vendor/hermes-agent/    # Bot runtime (Discord, Telegram, cron, memory)
-├── gossip/                 # Core engine (context builder, dossiers, identity)
-├── gossip_tools/           # Custom Hermes tools (idle check, gossip gen, etc.)
-├── portal/                 # FastAPI onboarding web app
-├── skills/gossip/          # Bot behavior definition (SKILL.md)
-├── config/SOUL.md          # Bot personality
-└── data/                   # Runtime data (SQLite + markdown, gitignored)
+├── openclaw/                  # Agent workspace (OpenClaw reads these)
+│   ├── SOUL.md                # Personality + sabotage playbook (13 tactics)
+│   ├── SKILL.md               # Behavior rules + API tool reference
+│   ├── HEARTBEAT.md           # Proactive drop logic (runs every 30min)
+│   └── plugins/gossip/        # TypeScript plugin (tool bridge)
+├── gossip/                    # Python core
+│   ├── db.py                  # SQLite (members, DMs, memory, events)
+│   ├── engine.py              # Context assembly (group/DM/proactive)
+│   ├── sabotage.py            # Contradiction detector + calendar cross-ref
+│   ├── compactor.py           # Dossier deduplication + size cap
+│   ├── email_filter.py        # Drops spam/marketing/sensitive emails
+│   ├── synthesizer.py         # Haiku-powered structured summaries
+│   ├── proactive.py           # Pre-check gates for cron jobs
+│   ├── sources/calendar.py    # Google Calendar sync + attendee extraction
+│   └── sources/gmail.py       # Gmail sync (filtered)
+├── portal/                    # FastAPI web app
+│   ├── routes/tool_api.py     # 20+ JSON endpoints (tools for the agent)
+│   ├── routes/dashboard.py    # Monitoring dashboard API
+│   ├── routes/onboard.py      # Member onboarding flow
+│   └── routes/oauth_google.py # Google OAuth + deep sync trigger
+├── scripts/start.sh           # Launch script (portal + tunnel + OpenClaw)
+├── config/.env                # API keys, bot tokens (gitignored)
+└── data/                      # Runtime data (gitignored)
+    ├── gossip.db              # SQLite database
+    ├── dossiers/              # Per-member markdown files
+    ├── chat/                  # Daily chat logs (auto-captured)
+    ├── summaries/             # Synthesizer output
+    └── group.md               # Group dynamics observations
 ```
 
-## Onboarding
+## Quick Start
 
-### For the host (one person sets this up)
-1. Run `./scripts/setup.sh` — interactive wizard, ~10 minutes
-2. Add the bot to your Discord server or Telegram group
-3. Share the invite link in the group chat
+```bash
+git clone https://github.com/kickingkeys/gossip.git
+cd gossip
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-### For members (everyone else)
-1. Open the invite link on your phone
-2. Enter your name and platform username
-3. Share your Google Calendar with the bot's email (optional)
-4. Share your live location on Google Maps (optional)
-5. Tell the bot something interesting (optional)
-6. Done — visit your profile page anytime to see what the bot knows, edit it, or add more
+# Set up config/.env with your keys (see .env.example)
+# Install OpenClaw: https://docs.openclaw.ai
+
+# Configure OpenClaw for Discord
+openclaw --profile gossip channels add --channel discord --token $DISCORD_BOT_TOKEN
+openclaw --profile gossip config set agents.defaults.workspace "$PWD/openclaw"
+
+# Launch
+./scripts/start.sh
+```
 
 ## Data Sources
 
-| Source | Method | What the bot gets |
-|--------|--------|-------------------|
-| Google Calendar | Share with bot's email or OAuth | Events, locations, travel plans |
-| Google Maps | Share live location with bot's email | Real-time location |
-| Gmail | Forward emails to bot's inbox | Email content for gossip fuel |
-| Instagram | OAuth (Business/Creator accounts) | Posts, captions, geotags |
-| Twitter/X | OAuth | Tweets, location metadata |
-| Manual input | Web portal or DMs | Whatever you tell it |
-| Chat | Bot monitors the group chat | Everything said in the group |
+| Source | How | What Donny gets |
+|--------|-----|-----------------|
+| Google Calendar | OAuth (members connect via onboarding link) | Events, locations, attendees, patterns |
+| Gmail | OAuth (read-only, filtered for relevance) | Personal contacts, interests, plans |
+| DM conversations | Ongoing — Donny initiates and responds | Secrets, opinions, contradictions |
+| Group chat | Auto-captured every heartbeat via Discord API | Everything said in the channel |
+
+Emails are filtered before reaching any LLM — medical, financial, legal, and marketing emails are dropped automatically.
+
+## Cron Jobs
+
+| Job | Frequency | What it does |
+|-----|-----------|--------------|
+| Heartbeat | 30min | Captures chat + DMs, checks idle state, drops observations |
+| DM check-in | 1h | Picks a member to DM, extracts intel |
+| Source sync | 2h | Syncs calendar + email, compacts dossiers |
+| Synthesizer | 4h | Creates structured member summaries via Haiku |
+| Discovery | 12h | Finds new Discord server members to onboard |
+
+## Dashboard
+
+Real-time monitoring at `http://localhost:3000/dashboard` (or via Cloudflare tunnel for public access).
+
+Shows: member status, activity feed, DM conversations, Donny's memory, dossier contents, cron job status.
 
 ## Tech Stack
 
-- **Runtime:** [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Python, MIT)
-- **AI:** Anthropic Claude API
-- **Portal:** FastAPI + Jinja2
-- **Database:** SQLite (WAL mode)
-- **Calendar:** Google Calendar API
-- **Platforms:** Discord (discord.py), Telegram (python-telegram-bot)
-
-## Configuration
-
-- `gossip.yaml` — bot name, personality, thresholds, quiet hours
-- `config/.env` — API keys, bot tokens, OAuth credentials
-- `config/SOUL.md` — bot personality (editable markdown)
-- `skills/gossip/SKILL.md` — behavior rules
+- **Agent runtime:** [OpenClaw](https://docs.openclaw.ai) (Node.js)
+- **LLM:** Claude Opus (responses), Claude Haiku (synthesizer, reactions)
+- **Data layer:** Python 3.11+ / FastAPI / SQLite
+- **Platform:** Discord (via OpenClaw's discord.js adapter)
+- **Tunnel:** Cloudflare (for OAuth callbacks + public dashboard)
 
 ## License
 
