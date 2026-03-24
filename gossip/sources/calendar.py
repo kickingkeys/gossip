@@ -35,6 +35,22 @@ def _get_calendar_service(credentials=None):
     return build("calendar", "v3", credentials=creds)
 
 
+def _extract_attendees(event: dict) -> list[dict[str, str]]:
+    """Extract attendee emails and names from a Google Calendar event."""
+    attendees = []
+    for att in event.get("attendees", []):
+        email = att.get("email", "")
+        name = att.get("displayName", "")
+        status = att.get("responseStatus", "needsAction")
+        if email:
+            attendees.append({
+                "email": email,
+                "name": name,
+                "status": status,
+            })
+    return attendees
+
+
 def fetch_upcoming_events(
     credentials=None,
     calendar_id: str = "primary",
@@ -70,6 +86,7 @@ def fetch_upcoming_events(
                 "end": event.get("end", {}).get("dateTime", ""),
                 "location": event.get("location", ""),
                 "description": (event.get("description") or "")[:200],
+                "attendees": _extract_attendees(event),
             })
         return events
 
@@ -99,6 +116,68 @@ def fetch_shared_calendars() -> list[dict[str, str]]:
         return calendars
     except Exception as e:
         return [{"error": str(e)}]
+
+
+def _cross_reference_attendees(events: list[dict], member_name: str) -> list[str]:
+    """Cross-reference attendee emails against known members.
+
+    Returns lines describing shared events with other group members.
+    """
+    from gossip.db import get_default_group
+
+    group = get_default_group()
+    if not group:
+        return []
+
+    members = get_members_by_group(group["id"])
+
+    # Build email-to-member lookup from OAuth tokens and known emails
+    email_to_member: dict[str, str] = {}
+    for m in members:
+        if m["display_name"].lower() == member_name.lower():
+            continue
+        # Check if member has a Google token — their email is in the token record
+        token = get_oauth_token(m["id"], "google")
+        if token and token.get("scopes"):
+            # The member's email can be inferred from their display name as fallback
+            pass
+        # Also check dossier for email patterns (rough heuristic)
+        dn_lower = m["display_name"].lower().replace(" ", "")
+        # We'll match on partial username in email
+        email_to_member[dn_lower] = m["display_name"]
+
+    shared_lines: list[str] = []
+    seen: set[str] = set()
+
+    for ev in events:
+        attendees = ev.get("attendees", [])
+        if not attendees:
+            continue
+        for att in attendees:
+            email = att.get("email", "").lower()
+            att_name = att.get("name", "")
+            if not email:
+                continue
+            # Check against each known member
+            for m in members:
+                if m["display_name"].lower() == member_name.lower():
+                    continue
+                m_lower = m["display_name"].lower()
+                # Match by name in attendee display name, or by username fragment in email
+                name_match = (
+                    m_lower in att_name.lower()
+                    or m_lower.replace(" ", "") in email.split("@")[0]
+                    or (m.get("discord_username") and m["discord_username"].lower() in email.split("@")[0])
+                )
+                if name_match:
+                    key = f"{m['display_name']}|{ev['summary']}"
+                    if key not in seen:
+                        seen.add(key)
+                        shared_lines.append(
+                            f"- Shared event with {m['display_name']}: {ev['summary']} ({ev.get('start', '')[:10]})"
+                        )
+
+    return shared_lines
 
 
 def sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
@@ -136,7 +215,17 @@ def sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
                 line += f" @ {ev['location']}"
             if ev.get("start"):
                 line += f" ({ev['start'][:16]})"
+            # Note attendee count if present
+            att_count = len(ev.get("attendees", []))
+            if att_count > 1:
+                line += f" [{att_count} attendees]"
             lines.append(line)
+
+        # Cross-reference attendees against known members
+        shared_lines = _cross_reference_attendees(events, member_name)
+        if shared_lines:
+            lines.append("\n**Shared events with group members:**")
+            lines.extend(shared_lines)
 
         if lines:
             summary = "\n".join(lines)
@@ -152,6 +241,7 @@ def sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
                 "member_name": member_name,
                 "events_found": len(events),
                 "events_added_to_dossier": min(len(events), 5),
+                "shared_events_found": len(shared_lines),
             },
         )
     elif events and "error" in events[0]:
@@ -203,6 +293,7 @@ def fetch_past_events(
                 "end": event.get("end", {}).get("dateTime", ""),
                 "location": event.get("location", ""),
                 "description": (event.get("description") or "")[:200],
+                "attendees": _extract_attendees(event),
             })
         return events
 
@@ -278,7 +369,18 @@ def deep_sync_member_calendar(member_id: str, member_name: str) -> list[dict]:
                     line += f" @ {ev['location']}"
                 if ev.get("start"):
                     line += f" ({ev['start'][:10]})"
+                att_count = len(ev.get("attendees", []))
+                if att_count > 1:
+                    line += f" [{att_count} attendees]"
                 lines.append(line)
+
+    # Cross-reference attendees against known members (past + future)
+    all_for_xref = (past if past and "error" not in past[0] else []) + \
+                   (future if future and "error" not in future[0] else [])
+    shared_lines = _cross_reference_attendees(all_for_xref, member_name)
+    if shared_lines:
+        lines.append("\n**Shared events with group members:**")
+        lines.extend(shared_lines)
 
     if lines:
         summary = "\n".join(lines)

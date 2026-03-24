@@ -21,7 +21,7 @@ gossip:
   # Max days of chat history to include in context
   chat_history_days: 2
   # Max characters per dossier in context
-  dossier_max_chars: 500
+  dossier_max_chars: 4000
   # Timezone for quiet hours (IANA format)
   timezone: "America/Los_Angeles"
 

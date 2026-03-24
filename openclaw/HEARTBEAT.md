@@ -6,6 +6,14 @@ quiet_hours_end: 9
 
 Check on the group chat and decide what to do.
 
+**Step 0:** Capture recent chat messages and DMs from Discord (automatic, no agent decision needed):
+```
+exec timeout=30: curl -s -X POST http://localhost:3000/api/gossip/capture-chat -H "Content-Type: application/json" -d '{}'
+```
+```
+exec timeout=30: curl -s -X POST http://localhost:3000/api/gossip/capture-dms -H "Content-Type: application/json" -d '{}'
+```
+
 **Step 1:** Check the state:
 ```
 exec timeout=30: curl -s -X POST http://localhost:3000/api/gossip/idle-check -H "Content-Type: application/json" -d '{}'

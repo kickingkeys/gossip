@@ -1,0 +1,41 @@
+{
+  "updated_at": "2026-03-18T13:10:30.930542",
+  "platforms": {
+    "discord": [
+      {
+        "id": "1482803423920521413",
+        "name": "botfree",
+        "guild": "Tea Time",
+        "type": "channel"
+      },
+      {
+        "id": "1483199527581253692",
+        "name": "welcome",
+        "guild": "Tea Time",
+        "type": "channel"
+      },
+      {
+        "id": "1482803423920521413",
+        "name": "Tea Time / #general",
+        "type": "group",
+        "thread_id": null
+      },
+      {
+        "id": "1483199527581253692",
+        "name": "Tea Time / #welcome",
+        "type": "group",
+        "thread_id": null
+      },
+      {
+        "id": "1482907672150933604",
+        "name": "kickingkeys",
+        "type": "dm",
+        "thread_id": null
+      }
+    ],
+    "telegram": [],
+    "whatsapp": [],
+    "signal": [],
+    "email": []
+  }
+}

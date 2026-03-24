@@ -1,0 +1,5 @@
+ProzackMark - Discord user in Tea Time server, asking what I know about them
+§
+ProzackMark - revealed during our chat that they are actually Ryan. Was testing my trustworthiness by pretending to be someone else sharing gossip about "Ryan and Michaels." Ryan is being cheated on by their partner Michaels (2+ years together) with their roommate Surya. This has been going on for months. Ryan walked in on them last Tuesday and they "hissed" at him. Ryan has trust issues from this betrayal and was leaning on a friend "Ali Khamenei" for support. Ryan almost apologized when he caught them but stopped himself. He's planning to do something about the situation.
+§
+ProzackMark - appears in Tea Time Discord server. Initially seemed chaotic/distracted (mentioned bleeding, custody issues, tech problems). Was working on some kind of app with OAuth/Google sign-in integration using cloudflare tunnels. Group members gave feedback that "Donny" personality was too over-the-top with gossip bot energy and needed to be more chill. Mark asked for "real tea" about group members via DM.

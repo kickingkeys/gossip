@@ -7,6 +7,7 @@ All endpoints return JSON. POST endpoints accept JSON bodies.
 from __future__ import annotations
 
 import json
+import os
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -24,9 +25,10 @@ from gossip.db import (
     log_donny_memory,
     can_dm_undiscovered,
     upsert_member_summary,
+    update_chat_activity,
 )
 from gossip.dossiers import append_dossier_from_source, read_dossier
-from gossip.engine import gossip_context, update_group_dynamics, get_group_dynamics
+from gossip.engine import gossip_context, append_chat_log, update_group_dynamics, get_group_dynamics
 from gossip.identity import resolve_member
 from gossip.proactive import should_fire_idle_gossip
 
@@ -443,3 +445,265 @@ async def resolve_member_api(request: Request):
             "nicknames": member.get("nicknames"),
         }})
     return JSONResponse({"member": None})
+
+
+# ── FIX 1A: Log a chat message ──────────────────────────────────────
+
+
+@router.post("/log-chat")
+async def log_chat_api(request: Request):
+    """Log a group chat message (append to daily chat log + update activity)."""
+    body = await request.json()
+    username = body.get("username", "unknown")
+    content = body.get("content", "")
+    channel_id = body.get("channel_id", "general")
+
+    if not content:
+        return JSONResponse({"error": "content is required"}, status_code=400)
+
+    append_chat_log(username, content)
+
+    group_id = _get_group_id()
+    if group_id:
+        update_chat_activity(group_id, "discord", channel_id, author=username)
+
+    return JSONResponse({"success": True})
+
+
+# ── FIX 1B/C: Capture chat from Discord REST API ────────────────────
+
+
+GENERAL_CHANNEL_ID = "1483923110192218322"
+_LAST_CAPTURED_MSG_FILE = None  # lazily resolved
+
+
+def _last_captured_path():
+    global _LAST_CAPTURED_MSG_FILE
+    if _LAST_CAPTURED_MSG_FILE is None:
+        cfg = get_config()
+        data_dir = cfg.resolve_path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _LAST_CAPTURED_MSG_FILE = data_dir / ".last_captured_msg_id"
+    return _LAST_CAPTURED_MSG_FILE
+
+
+def _read_last_captured_id() -> str | None:
+    path = _last_captured_path()
+    if path.exists():
+        val = path.read_text(encoding="utf-8").strip()
+        return val if val else None
+    return None
+
+
+def _write_last_captured_id(msg_id: str) -> None:
+    path = _last_captured_path()
+    path.write_text(msg_id, encoding="utf-8")
+
+
+@router.post("/capture-chat")
+async def capture_chat(request: Request):
+    """Poll Discord REST API for recent #general messages and log them.
+
+    Tracks the last captured message ID to avoid duplicates.
+    Designed to be called by a cron job every 5 minutes.
+    """
+    import requests as http_requests
+
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    if not bot_token:
+        return JSONResponse({"error": "DISCORD_BOT_TOKEN not set"}, status_code=500)
+
+    headers = {"Authorization": f"Bot {bot_token}"}
+    params: dict[str, str | int] = {"limit": 50}
+
+    last_id = _read_last_captured_id()
+    if last_id:
+        params["after"] = last_id
+
+    try:
+        resp = http_requests.get(
+            f"https://discord.com/api/v10/channels/{GENERAL_CHANNEL_ID}/messages",
+            headers=headers,
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        messages = resp.json()
+    except Exception as e:
+        return JSONResponse({"error": f"Discord API error: {e}"}, status_code=500)
+
+    if not isinstance(messages, list) or not messages:
+        return JSONResponse({"captured": 0, "last_id": last_id})
+
+    # Discord returns newest-first; reverse for chronological order
+    messages.sort(key=lambda m: m["id"])
+
+    group_id = _get_group_id()
+    captured = 0
+    newest_id = last_id
+
+    for msg in messages:
+        author = msg.get("author", {})
+        if author.get("bot"):
+            continue
+
+        username = author.get("global_name") or author.get("username", "unknown")
+        content = msg.get("content", "")
+        if not content:
+            continue
+
+        # Parse Discord timestamp
+        from datetime import datetime, timezone
+        try:
+            ts = datetime.fromisoformat(msg["timestamp"].replace("+00:00", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except Exception:
+            ts = None
+
+        append_chat_log(username, content, timestamp=ts)
+        if group_id:
+            update_chat_activity(group_id, "discord", GENERAL_CHANNEL_ID, author=username)
+        captured += 1
+
+        if newest_id is None or msg["id"] > newest_id:
+            newest_id = msg["id"]
+
+    if newest_id and newest_id != last_id:
+        _write_last_captured_id(newest_id)
+
+    return JSONResponse({"captured": captured, "last_id": newest_id})
+
+
+# ── FIX 2: Capture DMs from Discord REST API ────────────────────────
+
+
+_LAST_CAPTURED_DM_FILE = None
+
+
+def _last_captured_dm_path():
+    global _LAST_CAPTURED_DM_FILE
+    if _LAST_CAPTURED_DM_FILE is None:
+        cfg = get_config()
+        data_dir = cfg.resolve_path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _LAST_CAPTURED_DM_FILE = data_dir / ".last_captured_dm_ids"
+    return _LAST_CAPTURED_DM_FILE
+
+
+def _read_last_dm_ids() -> dict[str, str]:
+    """Returns {channel_id: last_message_id}."""
+    path = _last_captured_dm_path()
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _write_last_dm_ids(ids: dict[str, str]) -> None:
+    path = _last_captured_dm_path()
+    path.write_text(json.dumps(ids), encoding="utf-8")
+
+
+@router.post("/capture-dms")
+async def capture_dms(request: Request):
+    """Poll Discord REST API for recent DMs from known members and log them.
+
+    Cross-references DM channels with member records that have a
+    discord_dm_channel_id set. Tracks per-channel last message ID
+    to avoid duplicates.
+    """
+    import requests as http_requests
+
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    if not bot_token:
+        return JSONResponse({"error": "DISCORD_BOT_TOKEN not set"}, status_code=500)
+
+    group_id = _get_group_id()
+    if not group_id:
+        return JSONResponse({"error": "no group"}, status_code=400)
+
+    members = get_members_by_group(group_id)
+    headers = {"Authorization": f"Bot {bot_token}"}
+    last_dm_ids = _read_last_dm_ids()
+
+    total_captured = 0
+    member_results = []
+
+    for m in members:
+        dm_channel_id = m.get("discord_dm_channel_id")
+        if not dm_channel_id:
+            continue
+
+        params: dict[str, str | int] = {"limit": 25}
+        last_id = last_dm_ids.get(dm_channel_id)
+        if last_id:
+            params["after"] = last_id
+
+        try:
+            resp = http_requests.get(
+                f"https://discord.com/api/v10/channels/{dm_channel_id}/messages",
+                headers=headers,
+                params=params,
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                continue
+            messages = resp.json()
+        except Exception:
+            continue
+
+        if not isinstance(messages, list) or not messages:
+            continue
+
+        messages.sort(key=lambda msg: msg["id"])
+        captured = 0
+        newest_id = last_id
+
+        for msg in messages:
+            author = msg.get("author", {})
+            content = msg.get("content", "")
+            if not content:
+                continue
+
+            # Determine direction: if author is the bot, it's outbound
+            is_bot = author.get("bot", False)
+            direction = "outbound" if is_bot else "inbound"
+
+            log_dm(
+                member_id=m["id"],
+                message_text=content,
+                direction=direction,
+            )
+            captured += 1
+
+            if newest_id is None or msg["id"] > newest_id:
+                newest_id = msg["id"]
+
+        if newest_id and newest_id != last_id:
+            last_dm_ids[dm_channel_id] = newest_id
+
+        if captured:
+            total_captured += captured
+            member_results.append({"name": m["display_name"], "captured": captured})
+
+    _write_last_dm_ids(last_dm_ids)
+
+    return JSONResponse({
+        "total_captured": total_captured,
+        "members": member_results,
+    })
+
+
+# ── FIX 3: Synthesizer run-all endpoint ─────────────────────────────
+
+
+@router.post("/synthesizer/run-all")
+async def synthesizer_run_all(request: Request):
+    """Run the synthesizer for all members. Designed for cron use."""
+    from gossip.synthesizer import run_synthesizer_all
+
+    results = run_synthesizer_all()
+    return JSONResponse(results)

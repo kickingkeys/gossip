@@ -146,10 +146,10 @@ def run_synthesizer_for_member(member_id: str, member_name: str) -> dict | None:
             event_type="synthesizer",
             event_subtype="success",
             summary=f"Synthesized summary for {member_name}",
-            payload_json=json.dumps({
+            payload={
                 "member_name": member_name,
                 "summary_chars": len(summary_json),
-            }),
+            },
         )
 
         return summary
@@ -159,10 +159,10 @@ def run_synthesizer_for_member(member_id: str, member_name: str) -> dict | None:
             event_type="synthesizer",
             event_subtype="error",
             summary=f"Synthesizer failed for {member_name}: {e}",
-            payload_json=json.dumps({
+            payload={
                 "member_name": member_name,
                 "error": str(e),
-            }),
+            },
         )
         return None
 

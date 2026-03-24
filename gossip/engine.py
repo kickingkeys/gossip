@@ -382,71 +382,6 @@ def get_dm_conversations_text(group_id: str | None = None) -> str:
     return "\n\n".join(conversations) if conversations else ""
 
 
-def build_gossip_context(group_id: str | None = None) -> str:
-    """Assemble the full context window for gossip generation."""
-    from gossip.logger import log_event, get_current_session_id
-
-    chat = get_recent_chat()
-    dossiers = get_all_dossiers()
-    dynamics = get_group_dynamics()
-    history = get_gossip_history_text(group_id)
-    manual = get_manual_input_text(group_id)
-    locations = get_member_locations_text(group_id)
-    investigation = get_investigation_notes(group_id)
-    dm_convos = get_dm_conversations_text(group_id)
-
-    parts = [
-        "## Recent Chat",
-        chat,
-        "",
-        "## Member Dossiers",
-        dossiers,
-        "",
-        "## Member Locations",
-        locations,
-        "",
-        "## Group Dynamics",
-        dynamics,
-        "",
-        "## Investigation Notes",
-        investigation,
-    ]
-
-    if dm_convos:
-        parts.extend(["", "## Recent DM Conversations", dm_convos])
-
-    parts.extend([
-        "",
-        "## Previous Gossip (don't repeat these)",
-        history,
-    ])
-
-    if manual:
-        parts.extend(["", "## Fresh Intel (from members directly)", manual])
-
-    context = "\n\n".join(parts)
-
-    log_event(
-        event_type="context_build",
-        summary="Assembled gossip context",
-        payload={
-            "chat_chars": len(chat),
-            "dossiers_chars": len(dossiers),
-            "dynamics_chars": len(dynamics),
-            "history_chars": len(history),
-            "manual_chars": len(manual),
-            "locations_chars": len(locations),
-            "investigation_chars": len(investigation),
-            "dm_convos_chars": len(dm_convos),
-            "total_chars": len(context),
-            "has_manual_input": bool(manual),
-        },
-        session_id=get_current_session_id(),
-    )
-
-    return context
-
-
 def append_chat_log(username: str, content: str, timestamp: datetime | None = None) -> None:
     """Append a message to the daily chat log."""
     from gossip.logger import log_event, get_current_session_id
@@ -711,6 +646,30 @@ def _build_proactive_context(group_id: str | None, member: str | None) -> str:
         f"[{m['timestamp']}] {m['content']}" for m in all_memories
     ) if all_memories else "(no memory for this person)"
 
+    # Group dynamics for conversational awareness
+    dynamics = get_group_dynamics()
+
+    # Sabotage ammunition — gives proactive DMs a strategic edge
+    try:
+        from gossip.sabotage import find_gossip_ammunition
+        ammo = find_gossip_ammunition(group_id)
+        ammo_parts = []
+        if ammo.get("overlaps"):
+            ammo_parts.append("**Calendar Overlaps:**")
+            for o in ammo["overlaps"][:3]:
+                ammo_parts.append(f"- {o['members'][0]} and {o['members'][1]}: {o['detail']}")
+        if ammo.get("contradictions"):
+            ammo_parts.append("**Contradictions:**")
+            for c in ammo["contradictions"][:3]:
+                ammo_parts.append(f"- {c['member']}: said \"{c['said']}\" but {c['but']}")
+        if ammo.get("opportunities"):
+            ammo_parts.append("**Opportunities:**")
+            for op in ammo["opportunities"][:3]:
+                ammo_parts.append(f"- {op['member']}: {op['reason']}")
+        ammunition_text = "\n".join(ammo_parts) if ammo_parts else "(no ammunition found)"
+    except Exception:
+        ammunition_text = "(ammunition module error)"
+
     parts = [
         f"## About {member}",
         about,
@@ -720,6 +679,12 @@ def _build_proactive_context(group_id: str | None, member: str | None) -> str:
         "",
         f"## Donny's Memory ({member})",
         memory_text,
+        "",
+        "## Group Dynamics",
+        dynamics,
+        "",
+        "## Ammunition (use to steer conversation)",
+        ammunition_text,
     ]
 
     return "\n\n".join(parts)

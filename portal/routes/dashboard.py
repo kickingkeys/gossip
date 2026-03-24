@@ -195,3 +195,94 @@ async def dashboard_dossiers():
         })
 
     return JSONResponse({"dossiers": dossiers})
+
+
+@router.get("/api/gossip/dashboard/dms")
+async def dashboard_dms():
+    """All DM conversations grouped by member."""
+    group_id = _get_group_id()
+    if not group_id:
+        return JSONResponse({"conversations": []})
+
+    members = get_members_by_group(group_id)
+    conversations = []
+
+    for m in members:
+        history = get_dm_history(m["id"], limit=20)
+        if not history:
+            continue
+
+        messages = []
+        for dm in reversed(history):
+            messages.append({
+                "direction": dm["direction"],
+                "text": dm["message_text"][:200],
+                "time": dm["created_at"],
+            })
+
+        conversations.append({
+            "member": m["display_name"],
+            "username": m.get("discord_username"),
+            "message_count": len(history),
+            "messages": messages,
+        })
+
+    return JSONResponse({"conversations": conversations})
+
+
+@router.get("/api/gossip/dashboard/crons")
+async def dashboard_crons():
+    """Cron job status — reads from OpenClaw's cron store."""
+    import json as json_mod
+
+    cron_path = Path.home() / ".openclaw-gossip" / "cron" / "jobs.json"
+    if not cron_path.exists():
+        return JSONResponse({"jobs": []})
+
+    try:
+        data = json_mod.loads(cron_path.read_text())
+        jobs = []
+        for job in data.get("jobs", []):
+            state = job.get("state", {})
+            schedule = job.get("schedule", {})
+
+            # Calculate next run
+            next_ms = state.get("nextRunAtMs")
+            last_ms = state.get("lastRunAtMs")
+
+            import time
+            now_ms = int(time.time() * 1000)
+
+            next_in = ""
+            if next_ms:
+                diff = (next_ms - now_ms) // 60000
+                if diff < 0:
+                    next_in = "overdue"
+                elif diff < 60:
+                    next_in = f"{diff}m"
+                else:
+                    next_in = f"{diff // 60}h {diff % 60}m"
+
+            last_ago = ""
+            if last_ms:
+                diff = (now_ms - last_ms) // 60000
+                if diff < 60:
+                    last_ago = f"{diff}m ago"
+                else:
+                    last_ago = f"{diff // 60}h {diff % 60}m ago"
+
+            jobs.append({
+                "id": job.get("id", ""),
+                "name": job.get("name", ""),
+                "schedule": schedule.get("display", f"every {schedule.get('everyMs', 0) // 60000}m"),
+                "enabled": job.get("enabled", False),
+                "next_in": next_in,
+                "last_ago": last_ago,
+                "last_status": state.get("lastStatus", "—"),
+                "consecutive_errors": state.get("consecutiveErrors", 0),
+                "last_error": state.get("lastError", ""),
+            })
+
+        return JSONResponse({"jobs": jobs})
+    except Exception as e:
+        return JSONResponse({"jobs": [], "error": str(e)})

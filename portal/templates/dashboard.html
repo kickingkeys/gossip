@@ -119,6 +119,29 @@ padding:0.12rem 0.5rem;border-radius:3px;font-family:var(--sans);font-weight:500
 .mem-text{font-size:0.8rem;color:var(--t2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mem-ago{font-family:var(--mono);font-size:0.65rem;color:var(--t4);flex-shrink:0}
 
+/* ── Cron Jobs ──────────────────────── */
+.cron-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0.8rem}
+.cron-card{background:var(--white);border:1px solid var(--s1);border-radius:8px;padding:1rem 1.2rem}
+.cron-name{font-weight:600;color:var(--t1);margin-bottom:0.2rem}
+.cron-schedule{font-size:0.7rem;color:var(--t3);margin-bottom:0.5rem}
+.cron-row{display:flex;justify-content:space-between;font-size:0.7rem;color:var(--t3);padding:0.15rem 0}
+.cron-status{font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:3px}
+.cron-status.ok{background:#e5f2e8;color:#4a8a5a}
+.cron-status.error{background:#f8e8e8;color:#aa4a4a}
+.cron-error{font-size:0.7rem;color:#aa4a4a;margin-top:0.3rem;font-style:italic}
+
+/* ── DM Conversations ──────────────── */
+.dm-convo{background:var(--white);border:1px solid var(--s1);border-radius:8px;padding:1rem 1.2rem;margin-bottom:0.8rem}
+.dm-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.6rem}
+.dm-name{font-family:var(--serif);font-size:1.1rem;color:var(--t1)}
+.dm-count{font-size:0.65rem;color:var(--t3)}
+.dm-msg{padding:0.3rem 0;font-size:0.8rem;display:flex;gap:0.5rem}
+.dm-dir{color:var(--t4);flex-shrink:0;font-family:var(--mono);font-size:0.7rem}
+.dm-dir.out{color:var(--ac2)}
+.dm-dir.in{color:#4a7aaa}
+.dm-text{color:var(--t2);flex:1;min-width:0}
+.dm-time{font-family:var(--mono);font-size:0.6rem;color:var(--t4);flex-shrink:0}
+
 /* ── Dossiers ───────────────────────── */
 .dos-tabs{display:flex;gap:0;border-bottom:1px solid var(--s2);margin-bottom:0}
 .dtab{
@@ -164,7 +187,9 @@ position:sticky;top:0;z-index:100;
 <div class="nav-item" data-page="activity"><span class="nav-icon">◈</span>Activity</div>
 <div class="nav-item" data-page="members"><span class="nav-icon">◎</span>Members</div>
 <div class="nav-item" data-page="memory"><span class="nav-icon">◇</span>Memory</div>
+<div class="nav-item" data-page="dms"><span class="nav-icon">◈</span>DMs</div>
 <div class="nav-item" data-page="dossiers"><span class="nav-icon">◆</span>Dossiers</div>
+<div class="nav-item" data-page="crons"><span class="nav-icon">◉</span>Crons</div>
 </div>
 <div class="sidebar-status"><div class="pulse"></div>live<span id="sidebarTime"></span></div>
 </div>
@@ -215,6 +240,16 @@ position:sticky;top:0;z-index:100;
 <div id="memoryList"></div>
 </div>
 
+<!-- DMs Page -->
+<div class="page" id="p-dms">
+<div id="dmList"></div>
+</div>
+
+<!-- Crons Page -->
+<div class="page" id="p-crons">
+<div class="cron-grid" id="cronGrid"></div>
+</div>
+
 <!-- Dossiers Page -->
 <div class="page" id="p-dossiers">
 <div class="dos-tabs" id="dosTabs"></div>
@@ -252,14 +287,14 @@ document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=
 
 // Mobile nav
 let mNav=document.getElementById('mobileNav');
-['overview','activity','members','memory','dossiers'].forEach(p=>{
+['overview','activity','members','memory','dms','dossiers','crons'].forEach(p=>{
 let d=document.createElement('div');d.className='nav-item'+(p==='overview'?' active':'');
 d.dataset.page=p;d.textContent=p;d.addEventListener('click',()=>{nav(p);mNav.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===p))});
 mNav.appendChild(d);
 });
 
 async function refresh(){
-let[ov,ac,me,ds]=await Promise.all([f(A+'/overview'),f(A+'/activity'),f(A+'/memory'),f(A+'/dossiers')]);
+let[ov,ac,me,ds,dms,cr]=await Promise.all([f(A+'/overview'),f(A+'/activity'),f(A+'/memory'),f(A+'/dossiers'),f(A+'/dms'),f(A+'/crons')]);
 let now=new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 document.getElementById('clock').textContent=now;
 document.getElementById('sidebarTime').textContent=' · '+now;
@@ -295,6 +330,31 @@ document.getElementById('memoryList').innerHTML=me.memories.map(m=>`<div class="
 <span class="mem-text">${e(m.content)}</span>
 <span class="mem-ago">${ago(m.timestamp)}</span>
 </div>`).join('')||'<div style="padding:1rem;color:var(--t3)">no memories</div>';
+}
+
+// DM Conversations
+if(dms&&dms.conversations){
+document.getElementById('dmList').innerHTML=dms.conversations.map(c=>`<div class="dm-convo">
+<div class="dm-header"><div class="dm-name">${e(c.member)}</div><div class="dm-count">${c.message_count} messages</div></div>
+${c.messages.map(m=>`<div class="dm-msg">
+<span class="dm-dir ${m.direction==='outbound'?'out':'in'}">${m.direction==='outbound'?'donny →':'← '+e(c.member)}</span>
+<span class="dm-text">${e(m.text)}</span>
+<span class="dm-time">${ago(m.time)}</span>
+</div>`).join('')}
+</div>`).join('')||'<div style="padding:1rem;color:var(--t3)">no DM conversations yet</div>';
+}
+
+// Cron Jobs
+if(cr&&cr.jobs){
+document.getElementById('cronGrid').innerHTML=cr.jobs.map(j=>`<div class="cron-card">
+<div class="cron-name">${e(j.name)}</div>
+<div class="cron-schedule">${e(j.schedule)}</div>
+<div class="cron-row"><span>Status</span><span class="cron-status ${j.last_status==='ok'?'ok':j.last_status==='error'?'error':''}">${e(j.last_status)}</span></div>
+<div class="cron-row"><span>Next run</span><span>${e(j.next_in)}</span></div>
+<div class="cron-row"><span>Last run</span><span>${e(j.last_ago)}</span></div>
+${j.consecutive_errors?`<div class="cron-row"><span>Errors</span><span style="color:#aa4a4a">${j.consecutive_errors} consecutive</span></div>`:''}
+${j.last_error?`<div class="cron-error">${e(j.last_error)}</div>`:''}
+</div>`).join('')||'<div style="padding:1rem;color:var(--t3)">no cron jobs</div>';
 }
 
 if(ds&&ds.dossiers){

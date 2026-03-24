@@ -58,6 +58,9 @@ SPAM_DOMAINS = [
     # Tech marketing
     "openrouter", "edgeimpulse", "productstunt",
     "github.com/notifications", "gitlab",
+    # Advocacy / political / surveys
+    "tirrc", "nba.com", "realty", "surveymonkey", "typeform",
+    "politico", "campaignmonitor", "nationbuilder",
 ]
 
 SPAM_SUBJECTS = [
@@ -81,16 +84,33 @@ KEEP_SUBJECTS = [
 ]
 
 
+def _extract_email_address(sender: str) -> str:
+    """Extract the bare email address from a sender string.
+
+    Handles formats like:
+      - "john@example.com"
+      - "John Smith <john@example.com>"
+      - "<john@example.com>"
+    Falls back to the full sender string (lowered) if no angle brackets found.
+    """
+    import re
+    match = re.search(r"<([^>]+)>", sender)
+    if match:
+        return match.group(1).lower().strip()
+    # No angle brackets — might be a bare email
+    return sender.lower().strip()
+
+
 def filter_emails(emails: list[dict]) -> list[dict]:
     """Remove sensitive and irrelevant emails. Returns only useful ones."""
     useful = []
     for em in emails:
-        sender = em.get("from", "").lower()
+        raw_sender = em.get("from", "")
+        email_addr = _extract_email_address(raw_sender)
         subject = em.get("subject", "")
-        subject_lower = subject.lower()
 
         # Pass 1: Privacy — always drop sensitive
-        if any(d in sender for d in SENSITIVE_DOMAINS):
+        if any(d in email_addr for d in SENSITIVE_DOMAINS):
             continue
         if any(p.search(subject) for p in SENSITIVE_SUBJECTS):
             continue
@@ -102,7 +122,7 @@ def filter_emails(emails: list[dict]) -> list[dict]:
             continue
 
         # Pass 3: Relevance — drop spam/marketing/newsletters
-        if any(d in sender for d in SPAM_DOMAINS):
+        if any(d in email_addr for d in SPAM_DOMAINS):
             continue
         if any(p.search(subject) for p in SPAM_SUBJECTS):
             continue

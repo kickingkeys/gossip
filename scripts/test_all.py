@@ -43,7 +43,7 @@ print("\n=== Donny Infrastructure Tests (OpenClaw) ===\n")
 @test("Core gossip imports")
 def _():
     from gossip.db import init_db, get_default_group, update_chat_activity, log_dm, get_last_dm
-    from gossip.engine import append_chat_log, build_gossip_context, should_gossip, gossip_context
+    from gossip.engine import append_chat_log, should_gossip, gossip_context
     from gossip.identity import resolve_member
     from gossip.config import load_config, get_config
     from gossip.dossiers import read_dossier, write_dossier

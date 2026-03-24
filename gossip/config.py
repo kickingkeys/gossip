@@ -34,7 +34,7 @@ class GossipConfig:
     quiet_hours_end: int = 9
     history_context_limit: int = 20
     chat_history_days: int = 2
-    dossier_max_chars: int = 500
+    dossier_max_chars: int = 4000
     timezone: str = "America/Los_Angeles"
 
 
